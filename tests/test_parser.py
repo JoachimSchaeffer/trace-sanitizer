@@ -14,6 +14,7 @@ from dataclaw.parser import (
     _summarize_tool_input,
     discover_projects,
     parse_project_sessions,
+    _parse_codex_session_file,
 )
 
 
@@ -567,3 +568,77 @@ class TestDiscoverProjects:
         assert sessions[0]["messages"][0]["role"] == "user"
         assert sessions[0]["messages"][1]["role"] == "assistant"
         assert sessions[0]["messages"][1]["tool_uses"][0]["tool"] == "exec_command"
+
+    def test_codex_thinking_not_duplicated(self, tmp_path, monkeypatch, mock_anonymizer):
+        """Reasoning from response_item and agent_reasoning event_msg should not duplicate."""
+        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", tmp_path / "projects" / "nonexistent")
+        monkeypatch.setattr("dataclaw.parser._CODEX_PROJECT_INDEX", {})
+
+        codex_sessions = tmp_path / "codex-sessions" / "2026" / "02" / "25"
+        codex_sessions.mkdir(parents=True)
+        session_file = codex_sessions / "rollout-2.jsonl"
+        lines = [
+            {
+                "timestamp": "2026-02-25T10:00:00.000Z",
+                "type": "session_meta",
+                "payload": {
+                    "id": "session-2",
+                    "cwd": "/Users/testuser/Documents/myrepo",
+                    "model_provider": "openai",
+                },
+            },
+            {
+                "timestamp": "2026-02-25T10:00:00.001Z",
+                "type": "turn_context",
+                "payload": {
+                    "cwd": "/Users/testuser/Documents/myrepo",
+                    "model": "gpt-5.3-codex",
+                },
+            },
+            {
+                "timestamp": "2026-02-25T10:00:01.000Z",
+                "type": "event_msg",
+                "payload": {"type": "user_message", "message": "fix the bug"},
+            },
+            {
+                "timestamp": "2026-02-25T10:00:02.000Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "reasoning",
+                    "summary": [{"text": "Planning fix"}, {"text": "Reading code"}],
+                },
+            },
+            {
+                "timestamp": "2026-02-25T10:00:02.001Z",
+                "type": "event_msg",
+                "payload": {"type": "agent_reasoning", "text": "Planning fix"},
+            },
+            {
+                "timestamp": "2026-02-25T10:00:02.002Z",
+                "type": "event_msg",
+                "payload": {"type": "agent_reasoning", "text": "Reading code"},
+            },
+            {
+                "timestamp": "2026-02-25T10:00:03.000Z",
+                "type": "event_msg",
+                "payload": {"type": "agent_message", "message": "I found the issue."},
+            },
+        ]
+        session_file.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+
+        monkeypatch.setattr("dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
+        monkeypatch.setattr("dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
+
+        from dataclaw.anonymizer import Anonymizer
+        anonymizer = Anonymizer()
+
+        result = _parse_codex_session_file(
+            session_file, anonymizer, include_thinking=True,
+            target_cwd="/Users/testuser/Documents/myrepo",
+        )
+        assert result is not None
+        assistant_msgs = [m for m in result["messages"] if m["role"] == "assistant"]
+        assert len(assistant_msgs) == 1
+        thinking = assistant_msgs[0]["thinking"]
+        paragraphs = [p.strip() for p in thinking.split("\n\n") if p.strip()]
+        assert paragraphs == ["Planning fix", "Reading code"]
