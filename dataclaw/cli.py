@@ -462,6 +462,9 @@ tags:
   - agentic-coding
 {model_tags}
 pretty_name: Coding Agent Conversations
+configs:
+  - config_name: default
+    data_files: conversations.jsonl
 ---
 
 # Coding Agent Conversation Logs
