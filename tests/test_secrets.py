@@ -1,8 +1,8 @@
-"""Tests for dataclaw.secrets — secret detection and redaction."""
+"""Tests for safety_dataclaw.secrets — secret detection and redaction."""
 
 import pytest
 
-from dataclaw.secrets import (
+from safety_dataclaw.secrets import (
     REDACTED,
     _has_mixed_char_types,
     _shannon_entropy,

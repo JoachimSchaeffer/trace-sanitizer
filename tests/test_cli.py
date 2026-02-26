@@ -1,4 +1,4 @@
-"""Tests for dataclaw.cli — CLI commands and helpers."""
+"""Tests for safety_dataclaw.cli — CLI commands and helpers."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dataclaw.cli import (
+from safety_dataclaw.cli import (
     _build_status_next_steps,
     _build_dataset_card,
     _collect_review_attestations,
@@ -281,7 +281,7 @@ class TestExportToJsonl:
             "project": "test",
         }]
         monkeypatch.setattr(
-            "dataclaw.cli.parse_project_sessions",
+            "safety_dataclaw.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
 
@@ -302,7 +302,7 @@ class TestExportToJsonl:
             "stats": {},
         }]
         monkeypatch.setattr(
-            "dataclaw.cli.parse_project_sessions",
+            "safety_dataclaw.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
         projects = [{"dir_name": "test", "display_name": "test"}]
@@ -319,7 +319,7 @@ class TestExportToJsonl:
             "stats": {"input_tokens": 10, "output_tokens": 5},
         }]
         monkeypatch.setattr(
-            "dataclaw.cli.parse_project_sessions",
+            "safety_dataclaw.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
         projects = [{"dir_name": "test", "display_name": "test"}]
@@ -335,7 +335,7 @@ class TestExportToJsonl:
             "stats": {},
         }]
         monkeypatch.setattr(
-            "dataclaw.cli.parse_project_sessions",
+            "safety_dataclaw.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
         projects = [{"dir_name": "t", "display_name": "t"}]
@@ -350,28 +350,28 @@ class TestExportToJsonl:
 class TestConfigure:
     def test_sets_repo(self, tmp_config, monkeypatch, capsys):
         # Also monkeypatch the cli module's references
-        monkeypatch.setattr("dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"repo": None, "excluded_projects": [], "redact_strings": []})
+        monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"repo": None, "excluded_projects": [], "redact_strings": []})
         saved = {}
-        monkeypatch.setattr("dataclaw.cli.save_config", lambda c: saved.update(c))
+        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
 
         configure(repo="alice/my-repo")
         assert saved["repo"] == "alice/my-repo"
 
     def test_merges_exclude(self, tmp_config, monkeypatch, capsys):
-        monkeypatch.setattr("dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"excluded_projects": ["a"], "redact_strings": []})
+        monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"excluded_projects": ["a"], "redact_strings": []})
         saved = {}
-        monkeypatch.setattr("dataclaw.cli.save_config", lambda c: saved.update(c))
+        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
 
         configure(exclude=["b", "c"])
         assert sorted(saved["excluded_projects"]) == ["a", "b", "c"]
 
     def test_sets_source(self, tmp_config, monkeypatch, capsys):
-        monkeypatch.setattr("dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"repo": None, "source": None})
+        monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"repo": None, "source": None})
         saved = {}
-        monkeypatch.setattr("dataclaw.cli.save_config", lambda c: saved.update(c))
+        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
 
         configure(source="codex")
         assert saved["source"] == "codex"
@@ -383,11 +383,11 @@ class TestConfigure:
 class TestListProjects:
     def test_with_projects(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "dataclaw.cli.discover_projects",
+            "safety_dataclaw.cli.discover_projects",
             lambda: [{"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024}],
         )
         monkeypatch.setattr(
-            "dataclaw.cli.load_config",
+            "safety_dataclaw.cli.load_config",
             lambda: {"excluded_projects": []},
         )
         list_projects()
@@ -397,20 +397,20 @@ class TestListProjects:
         assert data[0]["name"] == "proj1"
 
     def test_no_projects(self, monkeypatch, capsys):
-        monkeypatch.setattr("dataclaw.cli.discover_projects", lambda: [])
+        monkeypatch.setattr("safety_dataclaw.cli.discover_projects", lambda: [])
         list_projects()
         captured = capsys.readouterr()
         assert "No Claude Code, Codex, Gemini CLI, or OpenCode sessions" in captured.out
 
     def test_source_filter_codex(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "dataclaw.cli.discover_projects",
+            "safety_dataclaw.cli.discover_projects",
             lambda: [
                 {"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024, "source": "claude"},
                 {"display_name": "codex:proj2", "session_count": 3, "total_size_bytes": 512, "source": "codex"},
             ],
         )
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"excluded_projects": []})
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"excluded_projects": []})
         list_projects(source_filter="codex")
         captured = capsys.readouterr()
         data = json.loads(captured.out)
@@ -420,7 +420,7 @@ class TestListProjects:
 
     def test_no_projects_for_selected_source(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "dataclaw.cli.discover_projects",
+            "safety_dataclaw.cli.discover_projects",
             lambda: [{"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024, "source": "claude"}],
         )
         list_projects(source_filter="codex")
@@ -429,13 +429,13 @@ class TestListProjects:
 
     def test_main_list_uses_configured_source_when_auto(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "dataclaw.cli.discover_projects",
+            "safety_dataclaw.cli.discover_projects",
             lambda: [
                 {"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024, "source": "claude"},
                 {"display_name": "codex:proj2", "session_count": 3, "total_size_bytes": 512, "source": "codex"},
             ],
         )
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"source": "codex", "excluded_projects": []})
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": "codex", "excluded_projects": []})
         monkeypatch.setattr("sys.argv", ["dataclaw", "list"])
         main()
         captured = capsys.readouterr()
@@ -476,7 +476,7 @@ class TestPushToHuggingface:
         mock_hfapi_cls = MagicMock(return_value=mock_api)
 
         # Patch the import inside push_to_huggingface
-        import dataclaw.cli as cli_mod
+        import safety_dataclaw.cli as cli_mod
         monkeypatch.setattr(cli_mod, "push_to_huggingface", lambda *a, **kw: None)
 
         # Direct test with mock
@@ -497,12 +497,12 @@ class TestPushToHuggingface:
         with patch.dict("sys.modules", {"huggingface_hub": mock_hf_module}):
             # Need to reimport to pick up the mock
             import importlib
-            import dataclaw.cli
-            importlib.reload(dataclaw.cli)
+            import safety_dataclaw.cli
+            importlib.reload(safety_dataclaw.cli)
             with pytest.raises(SystemExit):
-                dataclaw.cli.push_to_huggingface(jsonl_path, "user/repo", {})
+                safety_dataclaw.cli.push_to_huggingface(jsonl_path, "user/repo", {})
             # Reload again to restore
-            importlib.reload(dataclaw.cli)
+            importlib.reload(safety_dataclaw.cli)
 
 
 class TestWorkflowGateMessages:
@@ -555,8 +555,8 @@ class TestWorkflowGateMessages:
     def test_confirm_skip_full_name_scan_succeeds(self, tmp_path, monkeypatch, capsys):
         export_file = tmp_path / "export.jsonl"
         export_file.write_text('{"project":"p","model":"m","messages":[]}\n')
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {})
-        monkeypatch.setattr("dataclaw.cli.save_config", lambda _c: None)
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
+        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda _c: None)
         monkeypatch.setattr(
             "sys.argv",
             [
@@ -579,7 +579,7 @@ class TestWorkflowGateMessages:
         assert payload["full_name_scan"]["skipped"] is True
 
     def test_push_before_confirm_shows_step_process(self, monkeypatch, capsys):
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"stage": "review", "source": "all"})
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"stage": "review", "source": "all"})
         monkeypatch.setattr("sys.argv", ["dataclaw", "export"])
         with pytest.raises(SystemExit):
             main()
@@ -590,9 +590,9 @@ class TestWorkflowGateMessages:
         assert "confirm" in payload["process_steps"][1]
 
     def test_export_requires_project_confirmation_with_full_flow(self, monkeypatch, capsys):
-        monkeypatch.setattr("dataclaw.cli._has_session_sources", lambda _src: True)
+        monkeypatch.setattr("safety_dataclaw.cli._has_session_sources", lambda _src: True)
         monkeypatch.setattr(
-            "dataclaw.cli.discover_projects",
+            "safety_dataclaw.cli.discover_projects",
             lambda: [
                 {
                     "display_name": "proj1",
@@ -602,7 +602,7 @@ class TestWorkflowGateMessages:
                 }
             ],
         )
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {"source": "all"})
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": "all"})
         monkeypatch.setattr("sys.argv", ["dataclaw", "export", "--no-push"])
         with pytest.raises(SystemExit):
             main()
@@ -618,7 +618,7 @@ class TestWorkflowGateMessages:
         assert payload["projects"][0]["sessions"] == 2
 
     def test_export_requires_explicit_source_selection(self, monkeypatch, capsys):
-        monkeypatch.setattr("dataclaw.cli.load_config", lambda: {})
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
         monkeypatch.setattr("sys.argv", ["dataclaw", "export", "--no-push"])
         with pytest.raises(SystemExit):
             main()

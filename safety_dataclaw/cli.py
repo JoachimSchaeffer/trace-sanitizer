@@ -1,4 +1,4 @@
-"""CLI for DataClaw — export Claude Code and Codex conversations to Hugging Face."""
+"""CLI for safety-dataclaw — sanitize and upload AI agent trajectories to traced.run"""
 
 import argparse
 import json

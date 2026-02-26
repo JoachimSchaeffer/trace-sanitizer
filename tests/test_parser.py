@@ -1,11 +1,11 @@
-"""Tests for dataclaw.parser — JSONL parsing and project discovery."""
+"""Tests for safety_dataclaw.parser — JSONL parsing and project discovery."""
 
 import json
 import sqlite3
 
 import pytest
 
-from dataclaw.parser import (
+from safety_dataclaw.parser import (
     _build_project_name,
     _extract_assistant_content,
     _extract_user_content,
@@ -393,13 +393,13 @@ class TestParseSessionFile:
 
 class TestDiscoverProjects:
     def _disable_codex(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", tmp_path / "no-claude-projects")
-        monkeypatch.setattr("dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "no-codex-sessions")
-        monkeypatch.setattr("dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "no-codex-archived")
-        monkeypatch.setattr("dataclaw.parser._CODEX_PROJECT_INDEX", {})
-        monkeypatch.setattr("dataclaw.parser.GEMINI_DIR", tmp_path / "no-gemini")
-        monkeypatch.setattr("dataclaw.parser.OPENCODE_DB_PATH", tmp_path / "no-opencode.db")
-        monkeypatch.setattr("dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", tmp_path / "no-claude-projects")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "no-codex-sessions")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "no-codex-archived")
+        monkeypatch.setattr("safety_dataclaw.parser._CODEX_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.GEMINI_DIR", tmp_path / "no-gemini")
+        monkeypatch.setattr("safety_dataclaw.parser.OPENCODE_DB_PATH", tmp_path / "no-opencode.db")
+        monkeypatch.setattr("safety_dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
 
     def _write_opencode_db(self, db_path):
         conn = sqlite3.connect(db_path)
@@ -443,7 +443,7 @@ class TestDiscoverProjects:
             '{"type":"assistant","timestamp":1706000001000,"message":{"model":"m","content":[{"type":"text","text":"Hey"}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
         )
 
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir)
         projects = discover_projects()
         assert len(projects) == 1
         assert projects[0]["display_name"] == "myapp"
@@ -451,7 +451,7 @@ class TestDiscoverProjects:
 
     def test_no_projects_dir(self, tmp_path, monkeypatch):
         self._disable_codex(tmp_path, monkeypatch)
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", tmp_path / "nonexistent")
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", tmp_path / "nonexistent")
         assert discover_projects() == []
 
     def test_empty_project_dir(self, tmp_path, monkeypatch):
@@ -459,7 +459,7 @@ class TestDiscoverProjects:
         projects_dir = tmp_path / "projects"
         proj = projects_dir / "empty-project"
         proj.mkdir(parents=True)
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir)
         assert discover_projects() == []
 
     def test_parse_project_sessions(self, tmp_path, monkeypatch, mock_anonymizer):
@@ -474,20 +474,20 @@ class TestDiscoverProjects:
             '{"type":"assistant","timestamp":1706000001000,"message":{"model":"m","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":1,"output_tokens":1}}}\n'
         )
 
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir)
         sessions = parse_project_sessions("test-project", mock_anonymizer)
         assert len(sessions) == 1
         assert sessions[0]["project"] == "test-project"
 
     def test_parse_nonexistent_project(self, tmp_path, monkeypatch, mock_anonymizer):
         self._disable_codex(tmp_path, monkeypatch)
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", tmp_path / "projects")
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", tmp_path / "projects")
         assert parse_project_sessions("nope", mock_anonymizer) == []
 
     def test_discover_codex_projects(self, tmp_path, monkeypatch):
         self._disable_codex(tmp_path, monkeypatch)
         projects_dir = tmp_path / "projects"
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir / "nonexistent")
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir / "nonexistent")
 
         codex_sessions = tmp_path / "codex-sessions" / "2026" / "02" / "24"
         codex_sessions.mkdir(parents=True)
@@ -506,9 +506,9 @@ class TestDiscoverProjects:
             ) + "\n"
         )
 
-        monkeypatch.setattr("dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
-        monkeypatch.setattr("dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
-        monkeypatch.setattr("dataclaw.parser._CODEX_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
+        monkeypatch.setattr("safety_dataclaw.parser._CODEX_PROJECT_INDEX", {})
 
         projects = discover_projects()
         assert len(projects) == 1
@@ -516,8 +516,8 @@ class TestDiscoverProjects:
         assert projects[0]["display_name"] == "codex:myrepo"
 
     def test_parse_codex_project_sessions(self, tmp_path, monkeypatch, mock_anonymizer):
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", tmp_path / "projects" / "nonexistent")
-        monkeypatch.setattr("dataclaw.parser._CODEX_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", tmp_path / "projects" / "nonexistent")
+        monkeypatch.setattr("safety_dataclaw.parser._CODEX_PROJECT_INDEX", {})
 
         codex_sessions = tmp_path / "codex-sessions" / "2026" / "02" / "24"
         codex_sessions.mkdir(parents=True)
@@ -589,8 +589,8 @@ class TestDiscoverProjects:
         ]
         session_file.write_text("\n".join(json.dumps(line) for line in lines) + "\n")
 
-        monkeypatch.setattr("dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
-        monkeypatch.setattr("dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
 
         sessions = parse_project_sessions(
             "/Users/testuser/Documents/myrepo",
@@ -608,8 +608,8 @@ class TestDiscoverProjects:
 
     def test_codex_thinking_not_duplicated(self, tmp_path, monkeypatch, mock_anonymizer):
         """Reasoning from response_item and agent_reasoning event_msg should not duplicate."""
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", tmp_path / "projects" / "nonexistent")
-        monkeypatch.setattr("dataclaw.parser._CODEX_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", tmp_path / "projects" / "nonexistent")
+        monkeypatch.setattr("safety_dataclaw.parser._CODEX_PROJECT_INDEX", {})
 
         codex_sessions = tmp_path / "codex-sessions" / "2026" / "02" / "25"
         codex_sessions.mkdir(parents=True)
@@ -663,10 +663,10 @@ class TestDiscoverProjects:
         ]
         session_file.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
 
-        monkeypatch.setattr("dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
-        monkeypatch.setattr("dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "codex-sessions")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "codex-archived")
 
-        from dataclaw.anonymizer import Anonymizer
+        from safety_dataclaw.anonymizer import Anonymizer
         anonymizer = Anonymizer()
 
         result = _parse_codex_session_file(
@@ -691,8 +691,8 @@ class TestDiscoverProjects:
         conn.commit()
         conn.close()
 
-        monkeypatch.setattr("dataclaw.parser.OPENCODE_DB_PATH", db_path)
-        monkeypatch.setattr("dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.OPENCODE_DB_PATH", db_path)
+        monkeypatch.setattr("safety_dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
 
         projects = discover_projects()
         assert len(projects) == 1
@@ -769,8 +769,8 @@ class TestDiscoverProjects:
         conn.commit()
         conn.close()
 
-        monkeypatch.setattr("dataclaw.parser.OPENCODE_DB_PATH", db_path)
-        monkeypatch.setattr("dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.OPENCODE_DB_PATH", db_path)
+        monkeypatch.setattr("safety_dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
 
         sessions = parse_project_sessions(cwd, mock_anonymizer, source="opencode")
         assert len(sessions) == 1
@@ -942,12 +942,12 @@ class TestDiscoverSubagentProjects:
     """Verify discover_projects and parse_project_sessions include subagent-only sessions."""
 
     def _disable_codex(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "no-codex-sessions")
-        monkeypatch.setattr("dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "no-codex-archived")
-        monkeypatch.setattr("dataclaw.parser._CODEX_PROJECT_INDEX", {})
-        monkeypatch.setattr("dataclaw.parser.GEMINI_DIR", tmp_path / "no-gemini")
-        monkeypatch.setattr("dataclaw.parser.OPENCODE_DB_PATH", tmp_path / "no-opencode.db")
-        monkeypatch.setattr("dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_SESSIONS_DIR", tmp_path / "no-codex-sessions")
+        monkeypatch.setattr("safety_dataclaw.parser.CODEX_ARCHIVED_DIR", tmp_path / "no-codex-archived")
+        monkeypatch.setattr("safety_dataclaw.parser._CODEX_PROJECT_INDEX", {})
+        monkeypatch.setattr("safety_dataclaw.parser.GEMINI_DIR", tmp_path / "no-gemini")
+        monkeypatch.setattr("safety_dataclaw.parser.OPENCODE_DB_PATH", tmp_path / "no-opencode.db")
+        monkeypatch.setattr("safety_dataclaw.parser._OPENCODE_PROJECT_INDEX", {})
 
     def test_discover_includes_subagent_sessions(self, tmp_path, monkeypatch, mock_anonymizer):
         self._disable_codex(tmp_path, monkeypatch)
@@ -971,7 +971,7 @@ class TestDiscoverSubagentProjects:
             )) + "\n"
         )
 
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir)
         projects = discover_projects()
         assert len(projects) == 1
         assert projects[0]["session_count"] == 2
@@ -992,7 +992,7 @@ class TestDiscoverSubagentProjects:
             )) + "\n"
         )
 
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir)
         projects = discover_projects()
         assert len(projects) == 1
         assert projects[0]["session_count"] == 1
@@ -1025,7 +1025,7 @@ class TestDiscoverSubagentProjects:
             )) + "\n"
         )
 
-        monkeypatch.setattr("dataclaw.parser.PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr("safety_dataclaw.parser.PROJECTS_DIR", projects_dir)
         sessions = parse_project_sessions("mixed-project", mock_anonymizer)
         assert len(sessions) == 2
         contents = {s["messages"][0]["content"] for s in sessions}

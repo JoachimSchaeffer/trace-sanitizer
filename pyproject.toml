@@ -3,37 +3,24 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dataclaw"
-version = "0.2.1"
-description = "Export your Claude Code and Codex conversations to Hugging Face as structured training data"
+name = "safety-dataclaw"
+version = "0.1.0"
+description = "Sanitize and upload AI agent trajectories to traced.run"
 requires-python = ">=3.10"
 license = "MIT"
 readme = "README.md"
-authors = [
-    {name = "Banodoco"},
-]
-keywords = ["claude-code", "huggingface", "dataset", "conversations", "training-data"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries",
-]
+keywords = ["claude-code", "traced", "safety", "trajectories", "sanitization"]
 dependencies = [
-    "huggingface_hub>=0.20.0",
+    "requests>=2.31.0",
 ]
-
-[project.urls]
-Homepage = "https://github.com/banodoco/dataclaw"
-Repository = "https://github.com/banodoco/dataclaw"
-Issues = "https://github.com/banodoco/dataclaw/issues"
 
 [project.scripts]
-dataclaw = "dataclaw.cli:main"
+safety-dataclaw = "safety_dataclaw.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/JoachimSchaeffer/safety-dataclaw"
+Repository = "https://github.com/JoachimSchaeffer/safety-dataclaw"
+Issues = "https://github.com/JoachimSchaeffer/safety-dataclaw/issues"

@@ -1,10 +1,10 @@
-"""Tests for dataclaw.config — config persistence."""
+"""Tests for safety_dataclaw.config — config persistence."""
 
 import json
 
 import pytest
 
-from dataclaw.config import load_config, save_config
+from safety_dataclaw.config import load_config, save_config
 
 
 class TestLoadConfig:
@@ -55,11 +55,11 @@ class TestSaveConfig:
     def test_oserror_prints_warning(self, tmp_config, monkeypatch, capsys):
         # Make the directory unwritable
         monkeypatch.setattr(
-            "dataclaw.config.CONFIG_DIR",
+            "safety_dataclaw.config.CONFIG_DIR",
             tmp_config.parent / "nonexistent" / "deep" / "dir",
         )
         # Actually mock mkdir to raise
-        import dataclaw.config as config_mod
+        import safety_dataclaw.config as config_mod
         original_mkdir = type(tmp_config.parent).mkdir
 
         def failing_mkdir(self, *a, **kw):

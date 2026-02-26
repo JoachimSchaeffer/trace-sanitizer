@@ -1,8 +1,8 @@
-"""Tests for dataclaw.anonymizer — PII anonymization."""
+"""Tests for safety_dataclaw.anonymizer — PII anonymization."""
 
 import pytest
 
-from dataclaw.anonymizer import (
+from safety_dataclaw.anonymizer import (
     Anonymizer,
     _hash_username,
     _replace_username,
@@ -181,7 +181,7 @@ class TestAnonymizer:
 
     def test_extra_usernames(self, monkeypatch):
         monkeypatch.setattr(
-            "dataclaw.anonymizer._detect_home_dir",
+            "safety_dataclaw.anonymizer._detect_home_dir",
             lambda: ("/Users/testuser", "testuser"),
         )
         anon = Anonymizer(extra_usernames=["github_handle"])
@@ -190,7 +190,7 @@ class TestAnonymizer:
 
     def test_extra_usernames_dedup(self, monkeypatch):
         monkeypatch.setattr(
-            "dataclaw.anonymizer._detect_home_dir",
+            "safety_dataclaw.anonymizer._detect_home_dir",
             lambda: ("/Users/testuser", "testuser"),
         )
         # Primary username in extra list should be skipped (not duplicated)
