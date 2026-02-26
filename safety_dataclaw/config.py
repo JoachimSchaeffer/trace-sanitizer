@@ -22,6 +22,7 @@ class SafetyDataclawConfig(TypedDict, total=False):
     last_export: dict
     stage: str | None  # "auth" | "configure" | "review" | "confirmed" | "done"
     projects_confirmed: bool  # True once user has addressed folder exclusions
+    include_tool_outputs: bool | None  # True to include tool outputs in export
     review_attestations: dict
     review_verification: dict
     last_confirm: dict
