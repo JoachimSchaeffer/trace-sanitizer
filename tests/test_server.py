@@ -109,7 +109,7 @@ class TestSanitizeFindings:
             assert "type" in finding
             assert "start" in finding
             assert "end" in finding
-            assert "match" in finding
+            assert "match" not in finding  # raw secret values must not leak
             assert isinstance(finding["type"], str)
             assert isinstance(finding["start"], int)
             assert isinstance(finding["end"], int)

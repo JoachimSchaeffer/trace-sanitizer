@@ -4,27 +4,44 @@
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 # Add parent dir to path so we can import safety_dataclaw
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from safety_dataclaw.secrets import redact_text, scan_text, redact_custom_strings
+from safety_dataclaw.secrets import scan_text, redact_text, redact_custom_strings
 from safety_dataclaw.anonymizer import Anonymizer
 
 app = FastAPI(title="Safety DataClaw Sanitization Service", docs_url=None, redoc_url=None)
 
+MAX_CONTENT_LENGTH = 10_000_000  # 10 MB
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal sanitization error"},
+    )
+
+
+class Finding(BaseModel):
+    type: str
+    start: int
+    end: int
+
 
 class SanitizeRequest(BaseModel):
-    content: str
+    content: str = Field(..., max_length=MAX_CONTENT_LENGTH)
     redact_strings: list[str] | None = None
     anonymize_usernames: list[str] | None = None
 
 
 class SanitizeResponse(BaseModel):
     sanitized: str
-    findings: list[dict]
+    findings: list[Finding]
     redaction_count: int
 
 
@@ -34,7 +51,10 @@ def sanitize(req: SanitizeRequest):
     total_redactions = 0
 
     # Step 1: Regex-based secret detection and redaction
-    findings = scan_text(text)
+    # Note: scan_text is called twice (once here, once inside redact_text) because
+    # redact_text doesn't expose its internal findings. The cost is negligible (regex-based).
+    raw_findings = scan_text(text)
+    findings = [Finding(type=f["type"], start=f["start"], end=f["end"]) for f in raw_findings]
     text, count = redact_text(text)
     total_redactions += count
 
