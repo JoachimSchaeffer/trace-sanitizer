@@ -55,6 +55,8 @@ class TracedClient:
         resp.raise_for_status()
         return resp.json()
 
+    _BATCH_SIZE = 50  # Server-side limit per request
+
     def upload(
         self,
         sessions: list[dict],
@@ -62,6 +64,9 @@ class TracedClient:
         metadata: dict | None = None,
     ) -> dict[str, Any]:
         """Upload sanitized sessions to traced.run.
+
+        Automatically batches into chunks of 50 to stay within
+        the server-side per-request limit.
 
         Args:
             sessions: List of session dicts to upload.
@@ -74,23 +79,32 @@ class TracedClient:
         Raises:
             TracedApiError: If the key is invalid or lacks upload permission.
         """
-        body = {
-            "sessions": sessions,
-            "source": source,
-            "metadata": metadata or {},
-        }
-        resp = requests.post(
-            f"{self.base_url}/api/cli/upload",
-            headers=self._headers(),
-            json=body,
-            timeout=120,
-        )
-        if resp.status_code == 401:
-            raise TracedApiError("Invalid or revoked API key")
-        if resp.status_code == 403:
-            raise TracedApiError("API key lacks upload permission")
-        resp.raise_for_status()
-        return resp.json()
+        all_ids: list[str] = []
+        for i in range(0, len(sessions), self._BATCH_SIZE):
+            batch = sessions[i : i + self._BATCH_SIZE]
+            body = {
+                "sessions": batch,
+                "source": source,
+                "metadata": metadata or {},
+            }
+            resp = requests.post(
+                f"{self.base_url}/api/cli/upload",
+                headers=self._headers(),
+                json=body,
+                timeout=300,
+            )
+            if resp.status_code == 401:
+                raise TracedApiError("Invalid or revoked API key")
+            if resp.status_code == 403:
+                raise TracedApiError("API key lacks upload permission")
+            if not resp.ok:
+                detail = resp.text[:500]
+                raise TracedApiError(
+                    f"Upload batch failed (HTTP {resp.status_code}): {detail}"
+                )
+            data = resp.json()
+            all_ids.extend(data.get("trajectory_ids", []))
+        return {"trajectory_ids": all_ids, "status": "private"}
 
     def list_datasets(self) -> list[dict]:
         """List the user's trajectory datasets.
