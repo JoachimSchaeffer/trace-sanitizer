@@ -225,8 +225,11 @@ def parse_project_sessions(
     anonymizer: Anonymizer,
     include_thinking: bool = True,
     source: str = CLAUDE_SOURCE,
+    include_tool_outputs: bool = False,
 ) -> list[dict]:
     """Parse all sessions for a project into structured dicts."""
+    # Note: include_tool_outputs is only supported for Claude sessions.
+    # Gemini, Codex, and OpenCode raw formats don't include tool result data.
     if source == GEMINI_SOURCE:
         project_path = GEMINI_DIR / project_dir_name / "chats"
         if not project_path.exists():
@@ -280,14 +283,18 @@ def parse_project_sessions(
 
     sessions = []
     for session_file in sorted(project_path.glob("*.jsonl")):
-        parsed = _parse_claude_session_file(session_file, anonymizer, include_thinking)
+        parsed = _parse_claude_session_file(
+            session_file, anonymizer, include_thinking, include_tool_outputs,
+        )
         if parsed and parsed["messages"]:
             parsed["project"] = _build_project_name(project_dir_name)
             parsed["source"] = CLAUDE_SOURCE
             sessions.append(parsed)
 
     for session_dir in _find_subagent_only_sessions(project_path):
-        parsed = _parse_subagent_session(session_dir, anonymizer, include_thinking)
+        parsed = _parse_subagent_session(
+            session_dir, anonymizer, include_thinking, include_tool_outputs,
+        )
         if parsed and parsed["messages"]:
             parsed["project"] = _build_project_name(project_dir_name)
             parsed["source"] = CLAUDE_SOURCE
@@ -415,7 +422,8 @@ def _make_session_result(
 
 
 def _parse_claude_session_file(
-    filepath: Path, anonymizer: Anonymizer, include_thinking: bool = True
+    filepath: Path, anonymizer: Anonymizer, include_thinking: bool = True,
+    include_tool_outputs: bool = False,
 ) -> dict | None:
     messages: list[dict[str, Any]] = []
     metadata = {
@@ -431,18 +439,27 @@ def _parse_claude_session_file(
 
     try:
         for entry in _iter_jsonl(filepath):
-            _process_entry(entry, messages, metadata, stats, anonymizer, include_thinking)
+            _process_entry(
+                entry, messages, metadata, stats, anonymizer,
+                include_thinking, include_tool_outputs,
+            )
     except OSError:
         return None
+
+    if include_tool_outputs:
+        _strip_tool_use_ids(messages)
 
     return _make_session_result(metadata, messages, stats)
 
 
 def _parse_session_file(
-    filepath: Path, anonymizer: Anonymizer, include_thinking: bool = True
+    filepath: Path, anonymizer: Anonymizer, include_thinking: bool = True,
+    include_tool_outputs: bool = False,
 ) -> dict | None:
     """Backward-compatible alias for the Claude parser used by tests."""
-    return _parse_claude_session_file(filepath, anonymizer, include_thinking)
+    return _parse_claude_session_file(
+        filepath, anonymizer, include_thinking, include_tool_outputs,
+    )
 
 
 def _find_subagent_only_sessions(project_dir: Path) -> list[Path]:
@@ -466,6 +483,7 @@ def _find_subagent_only_sessions(project_dir: Path) -> list[Path]:
 
 def _parse_subagent_session(
     session_dir: Path, anonymizer: Anonymizer, include_thinking: bool = True,
+    include_tool_outputs: bool = False,
 ) -> dict | None:
     """Merge subagent JSONL files into a single session and parse it.
 
@@ -502,7 +520,13 @@ def _parse_subagent_session(
     stats = _make_stats()
 
     for _ts, entry in timed_entries:
-        _process_entry(entry, messages, metadata, stats, anonymizer, include_thinking)
+        _process_entry(
+            entry, messages, metadata, stats, anonymizer,
+            include_thinking, include_tool_outputs,
+        )
+
+    if include_tool_outputs:
+        _strip_tool_use_ids(messages)
 
     return _make_session_result(metadata, messages, stats)
 
@@ -1008,6 +1032,7 @@ def _process_entry(
     stats: dict[str, int],
     anonymizer: Anonymizer,
     include_thinking: bool,
+    include_tool_outputs: bool = False,
 ) -> None:
     entry_type = entry.get("type")
 
@@ -1020,6 +1045,12 @@ def _process_entry(
     timestamp = _normalize_timestamp(entry.get("timestamp"))
 
     if entry_type == "user":
+        # When include_tool_outputs is enabled, extract tool_result blocks
+        # from the user message and attach them to the preceding assistant's
+        # tool_use entries (matched by tool_use_id).
+        if include_tool_outputs:
+            _attach_tool_results(entry, messages, anonymizer)
+
         content = _extract_user_content(entry, anonymizer)
         if content is not None:
             messages.append({"role": "user", "content": content, "timestamp": timestamp})
@@ -1027,7 +1058,9 @@ def _process_entry(
             _update_time_bounds(metadata, timestamp)
 
     elif entry_type == "assistant":
-        msg = _extract_assistant_content(entry, anonymizer, include_thinking)
+        msg = _extract_assistant_content(
+            entry, anonymizer, include_thinking, include_tool_outputs,
+        )
         if msg:
             if metadata["model"] is None:
                 metadata["model"] = entry.get("message", {}).get("model")
@@ -1039,6 +1072,69 @@ def _process_entry(
             messages.append(msg)
             stats["assistant_messages"] += 1
             _update_time_bounds(metadata, timestamp)
+
+
+def _strip_tool_use_ids(messages: list[dict[str, Any]]) -> None:
+    """Remove any remaining temporary _id fields from tool_use dicts."""
+    for msg in messages:
+        for tu in msg.get("tool_uses", []):
+            tu.pop("_id", None)
+
+
+def _attach_tool_results(
+    entry: dict[str, Any],
+    messages: list[dict[str, Any]],
+    anonymizer: Anonymizer,
+) -> None:
+    """Match tool_result blocks in a user entry to the preceding assistant's tool_uses.
+
+    Claude Code encodes tool results as ``tool_result`` content blocks in the
+    user message that follows the assistant's ``tool_use`` blocks.  When
+    ``include_tool_outputs`` is enabled we extract these, redact secrets, and
+    attach each result as an ``"output"`` field on the matching tool_use dict.
+    The temporary ``_id`` key is stripped after matching.
+    """
+    msg_data = entry.get("message", {})
+    content = msg_data.get("content")
+    if not isinstance(content, list):
+        return
+
+    # Build lookup: tool_use_id → result content string
+    result_map: dict[str, str] = {}
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        tool_use_id = block.get("tool_use_id", "")
+        if not tool_use_id:
+            continue
+        # The content can be a string or a list of content blocks
+        block_content = block.get("content", "")
+        if isinstance(block_content, list):
+            parts = []
+            for part in block_content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    parts.append(part.get("text", ""))
+            block_content = "\n".join(parts)
+        if isinstance(block_content, str) and block_content.strip():
+            result_map[tool_use_id] = block_content
+
+    if not result_map:
+        return
+
+    # Find the last assistant message and match tool_uses by _id.
+    # Always strip _id from all tool_uses to avoid leaking internal IDs.
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        for tu in msg.get("tool_uses", []):
+            tu_id = tu.pop("_id", None)
+            if tu_id and tu_id in result_map:
+                output_text = result_map[tu_id]
+                # Redact secrets and anonymize
+                output_text, _ = redact_text(output_text)
+                output_text = anonymizer.text(output_text)
+                tu["output"] = output_text
+        break
 
 
 def _extract_user_content(entry: dict[str, Any], anonymizer: Anonymizer) -> str | None:
@@ -1054,6 +1150,7 @@ def _extract_user_content(entry: dict[str, Any], anonymizer: Anonymizer) -> str 
 
 def _extract_assistant_content(
     entry: dict[str, Any], anonymizer: Anonymizer, include_thinking: bool,
+    include_tool_outputs: bool = False,
 ) -> dict[str, Any] | None:
     msg_data = entry.get("message", {})
     content_blocks = msg_data.get("content", [])
@@ -1077,10 +1174,14 @@ def _extract_assistant_content(
             if thinking:
                 thinking_parts.append(anonymizer.text(thinking))
         elif block_type == "tool_use":
-            tool_uses.append({
+            tu: dict[str, Any] = {
                 "tool": block.get("name"),
                 "input": _summarize_tool_input(block.get("name"), block.get("input", {}), anonymizer),
-            })
+            }
+            # Store the tool_use id temporarily for matching with tool_result
+            if include_tool_outputs and block.get("id"):
+                tu["_id"] = block["id"]
+            tool_uses.append(tu)
 
     if not text_parts and not tool_uses and not thinking_parts:
         return None

@@ -303,6 +303,7 @@ def configure(
     redact: list[str] | None = None,
     redact_usernames: list[str] | None = None,
     confirm_projects: bool = False,
+    include_tool_outputs: bool | None = None,
 ):
     """Set config values non-interactively. Lists are MERGED (append), not replaced."""
     config = load_config()
@@ -316,6 +317,8 @@ def configure(
         _merge_config_list(config, "redact_usernames", redact_usernames)
     if confirm_projects:
         config["projects_confirmed"] = True
+    if include_tool_outputs is not None:
+        config["include_tool_outputs"] = include_tool_outputs
     save_config(config)
     print(f"Config saved to {CONFIG_FILE}")
     print(json.dumps(_mask_config_for_display(config), indent=2))
@@ -327,6 +330,7 @@ def export_to_jsonl(
     anonymizer: Anonymizer,
     include_thinking: bool = True,
     custom_strings: list[str] | None = None,
+    include_tool_outputs: bool = False,
 ) -> dict:
     """Export selected projects to JSONL. Returns metadata."""
     total = 0
@@ -351,6 +355,7 @@ def export_to_jsonl(
                 project["dir_name"], anonymizer=anonymizer,
                 include_thinking=include_thinking,
                 source=project.get("source", "claude"),
+                include_tool_outputs=include_tool_outputs,
             )
             proj_count = 0
             for session in sessions:
@@ -1142,6 +1147,11 @@ def main() -> None:
                      help="Comma-separated usernames to anonymize (GitHub handles, Discord names)")
     cfg.add_argument("--confirm-projects", action="store_true",
                      help="Mark project selection as confirmed (include all)")
+    tool_output_group = cfg.add_mutually_exclusive_group()
+    tool_output_group.add_argument("--include-tool-outputs", action="store_true", default=None,
+                                   help="Include tool outputs in export")
+    tool_output_group.add_argument("--no-tool-outputs", action="store_true", default=None,
+                                   help="Exclude tool outputs from export (default)")
 
     exp = sub.add_parser("export", help="Export sessions to JSONL")
     # Export flags on both the subcommand and root parser so `safety-dataclaw --no-push` works
@@ -1151,6 +1161,11 @@ def main() -> None:
         target.add_argument("--all-projects", action="store_true")
         target.add_argument("--no-thinking", action="store_true")
         target.add_argument("--no-push", action="store_true")
+        tool_out_group = target.add_mutually_exclusive_group()
+        tool_out_group.add_argument("--include-tool-outputs", action="store_true", default=None,
+                                    help="Include tool outputs in export")
+        tool_out_group.add_argument("--no-tool-outputs", action="store_true", default=None,
+                                    help="Exclude tool outputs from export (default)")
 
     args = parser.parse_args()
     command = args.command or "export"
@@ -1223,12 +1238,19 @@ def _parse_csv_arg(value: str | None) -> list[str] | None:
 
 def _handle_config(args) -> None:
     """Handle the config subcommand."""
+    include_tool_outputs_flag = None
+    if getattr(args, "include_tool_outputs", None):
+        include_tool_outputs_flag = True
+    elif getattr(args, "no_tool_outputs", None):
+        include_tool_outputs_flag = False
+
     has_changes = (
         args.source
         or args.exclude
         or args.redact
         or args.redact_usernames
         or args.confirm_projects
+        or include_tool_outputs_flag is not None
     )
     if not has_changes:
         print(json.dumps(_mask_config_for_display(load_config()), indent=2))
@@ -1239,6 +1261,7 @@ def _handle_config(args) -> None:
         redact=_parse_csv_arg(args.redact),
         redact_usernames=_parse_csv_arg(args.redact_usernames),
         confirm_projects=args.confirm_projects or bool(args.exclude),
+        include_tool_outputs=include_tool_outputs_flag,
     )
 
 
@@ -1329,6 +1352,33 @@ def _run_export(args) -> None:
         }, indent=2))
         sys.exit(1)
 
+    # Resolve include_tool_outputs: CLI flag > config > gate
+    if getattr(args, "include_tool_outputs", None):
+        include_tool_outputs = True
+    elif getattr(args, "no_tool_outputs", None):
+        include_tool_outputs = False
+    elif config.get("include_tool_outputs") is not None:
+        include_tool_outputs = config["include_tool_outputs"]
+    else:
+        print(json.dumps({
+            "error": "Tool output inclusion is not configured yet.",
+            "hint": (
+                "Tool outputs (file contents, command stdout, grep results, etc.) are stripped by default. "
+                "They are valuable for trajectory analysis but significantly increase export size. "
+                "Ask the user whether to include them, then run "
+                "`safety-dataclaw config --include-tool-outputs` or `--no-tool-outputs`."
+            ),
+            "required_action": (
+                "Ask the user: 'Should tool outputs (file contents, bash stdout, grep results) "
+                "be included in the export? This increases file size significantly but provides "
+                "richer trajectory data. Secrets will still be redacted.'"
+            ),
+            "blocked_on_step": "Step 4/6",
+            "process_steps": SETUP_TO_UPLOAD_STEPS,
+            "next_command": "safety-dataclaw config --no-tool-outputs",
+        }, indent=2))
+        sys.exit(1)
+
     total_sessions = sum(p["session_count"] for p in projects)
     total_size = sum(p["total_size_bytes"] for p in projects)
     print(f"\nFound {total_sessions} sessions across {len(projects)} projects "
@@ -1367,6 +1417,10 @@ def _run_export(args) -> None:
         print(f"\nAnonymizing usernames: {', '.join(extra_usernames)}")
     if custom_strings:
         print(f"Redacting custom strings: {len(custom_strings)} configured")
+    if include_tool_outputs:
+        print("Tool outputs: INCLUDED (with secret redaction)")
+    else:
+        print("Tool outputs: excluded")
 
     # Export
     output_path = args.output or Path("safety_dataclaw_conversations.jsonl")
@@ -1375,6 +1429,7 @@ def _run_export(args) -> None:
     meta = export_to_jsonl(
         included, output_path, anonymizer, not args.no_thinking,
         custom_strings=custom_strings,
+        include_tool_outputs=include_tool_outputs,
     )
     file_size = output_path.stat().st_size
     print(f"\nExported {meta['sessions']} sessions ({_format_size(file_size)})")

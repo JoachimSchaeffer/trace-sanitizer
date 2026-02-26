@@ -259,11 +259,12 @@ def redact_session(session: dict, custom_strings: list[str] | None = None) -> tu
                     msg[field], count = redact_custom_strings(msg[field], custom_strings)
                     total += count
         for tool_use in msg.get("tool_uses", []):
-            if tool_use.get("input"):
-                tool_use["input"], count = redact_text(tool_use["input"])
-                total += count
-                if custom_strings:
-                    tool_use["input"], count = redact_custom_strings(tool_use["input"], custom_strings)
+            for field in ("input", "output"):
+                if tool_use.get(field):
+                    tool_use[field], count = redact_text(tool_use[field])
                     total += count
+                    if custom_strings:
+                        tool_use[field], count = redact_custom_strings(tool_use[field], custom_strings)
+                        total += count
 
     return session, total
