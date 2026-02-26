@@ -60,7 +60,7 @@ def mock_anonymizer(monkeypatch):
 @pytest.fixture
 def tmp_config(tmp_path, monkeypatch):
     """Monkeypatch CONFIG_FILE and CONFIG_DIR to tmp_path."""
-    config_dir = tmp_path / ".dataclaw"
+    config_dir = tmp_path / ".safety-dataclaw"
     config_file = config_dir / "config.json"
     monkeypatch.setattr("safety_dataclaw.config.CONFIG_DIR", config_dir)
     monkeypatch.setattr("safety_dataclaw.config.CONFIG_FILE", config_file)
