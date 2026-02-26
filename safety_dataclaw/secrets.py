@@ -43,6 +43,24 @@ SECRET_PATTERNS = [
         re.IGNORECASE,
     )),
 
+    # Google Cloud API keys
+    ("gcloud_key", re.compile(r"AIza[A-Za-z0-9_-]{35}")),
+
+    # Stripe keys (secret, publishable, restricted)
+    ("stripe_key", re.compile(r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,}")),
+
+    # SendGrid API keys
+    ("sendgrid_key", re.compile(r"SG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{22,}")),
+
+    # Twilio account SIDs and auth tokens
+    ("twilio_key", re.compile(r"(?:AC|SK)[a-f0-9]{32}")),
+
+    # DigitalOcean tokens
+    ("digitalocean_token", re.compile(r"dop_v1_[a-f0-9]{64}")),
+
+    # Mailgun API keys
+    ("mailgun_key", re.compile(r"key-[A-Za-z0-9]{32}")),
+
     # Slack tokens
     ("slack_token", re.compile(r"xox[bpsa]-[A-Za-z0-9-]{20,}")),
 
@@ -51,10 +69,10 @@ SECRET_PATTERNS = [
         r"https?://(?:discord\.com|discordapp\.com)/api/webhooks/\d+/[A-Za-z0-9_-]{20,}"
     )),
 
-    # Private keys
+    # Private keys (body capped at 10KB to prevent ReDoS on unmatched BEGIN)
     ("private_key", re.compile(
         r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
-        r"[\s\S]*?"
+        r"[\s\S]{0,10000}?"
         r"-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
     )),
 

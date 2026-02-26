@@ -138,6 +138,41 @@ class TestScanText:
         findings = scan_text(text)
         assert any(f["type"] == "aws_secret" for f in findings)
 
+    def test_gcloud_key(self):
+        key = "AIzaSy" + "a" * 33
+        findings = scan_text(key)
+        assert any(f["type"] == "gcloud_key" for f in findings)
+
+    def test_stripe_secret_key(self):
+        key = "sk_live_" + "a" * 24
+        findings = scan_text(key)
+        assert any(f["type"] == "stripe_key" for f in findings)
+
+    def test_stripe_publishable_key(self):
+        key = "pk_test_" + "a" * 24
+        findings = scan_text(key)
+        assert any(f["type"] == "stripe_key" for f in findings)
+
+    def test_sendgrid_key(self):
+        key = "SG." + "a" * 22 + "." + "b" * 22
+        findings = scan_text(key)
+        assert any(f["type"] == "sendgrid_key" for f in findings)
+
+    def test_twilio_account_sid(self):
+        sid = "AC" + "a" * 32
+        findings = scan_text(sid)
+        assert any(f["type"] == "twilio_key" for f in findings)
+
+    def test_digitalocean_token(self):
+        token = "dop_v1_" + "a" * 64
+        findings = scan_text(token)
+        assert any(f["type"] == "digitalocean_token" for f in findings)
+
+    def test_mailgun_key(self):
+        key = "key-" + "a" * 32
+        findings = scan_text(key)
+        assert any(f["type"] == "mailgun_key" for f in findings)
+
     def test_slack_token(self):
         token = "xoxb-" + "1234567890-" * 3 + "abcdef"
         findings = scan_text(token)
