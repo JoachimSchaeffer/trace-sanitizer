@@ -101,5 +101,6 @@ def _replace_username(text: str, username: str, username_hash: str) -> str:
     if not text or not username or len(username) < 3:
         return text
     escaped = re.escape(username)
-    text = re.sub(escaped, username_hash, text, flags=re.IGNORECASE)
+    pattern = rf"\b{escaped}\b" if len(username) >= 4 else escaped
+    text = re.sub(pattern, username_hash, text, flags=re.IGNORECASE)
     return text

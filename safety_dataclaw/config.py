@@ -50,7 +50,7 @@ def load_config() -> SafetyDataclawConfig:
 
 def save_config(config: SafetyDataclawConfig) -> None:
     try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Create file with 0600 from the start to avoid TOCTOU race
         fd = os.open(str(CONFIG_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:

@@ -35,8 +35,8 @@ class Finding(BaseModel):
 
 class SanitizeRequest(BaseModel):
     content: str = Field(..., max_length=MAX_CONTENT_LENGTH)
-    redact_strings: list[str] | None = None
-    anonymize_usernames: list[str] | None = None
+    redact_strings: list[str] | None = Field(None, max_length=100)
+    anonymize_usernames: list[str] | None = Field(None, max_length=50)
 
 
 class SanitizeResponse(BaseModel):

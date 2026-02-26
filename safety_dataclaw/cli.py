@@ -4,9 +4,12 @@ import argparse
 import json
 import os
 import re
+import shlex
 import sys
 import urllib.error
 import urllib.request
+
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, cast
@@ -941,8 +944,8 @@ def cmd_auth(args) -> None:
         }))
     except TracedApiError as e:
         print(json.dumps({"error": str(e)}))
-    except Exception as e:
-        print(json.dumps({"error": f"Connection failed: {e}"}))
+    except requests.RequestException as e:
+        print(json.dumps({"error": f"Connection failed: {type(e).__name__}"}))
 
 
 def cmd_upload(args) -> None:
@@ -1013,8 +1016,8 @@ def cmd_upload(args) -> None:
         }))
     except TracedApiError as e:
         print(json.dumps({"error": str(e)}))
-    except Exception as e:
-        print(json.dumps({"error": f"Upload failed: {e}"}))
+    except requests.RequestException as e:
+        print(json.dumps({"error": f"Upload failed: {type(e).__name__}"}))
 
 
 def prep(source_filter: str = "auto") -> None:
@@ -1421,7 +1424,7 @@ def _run_export(args) -> None:
 
 def _build_pii_commands(output_path: Path) -> list[str]:
     """Return grep commands for PII scanning."""
-    p = str(output_path.resolve())
+    p = shlex.quote(str(output_path.resolve()))
     return [
         f"grep -oE '[a-zA-Z0-9.+-]+@[a-zA-Z0-9.-]+\\.[a-z]{{2,}}' {p} | grep -v noreply | head -20",
         f"grep -oE 'eyJ[A-Za-z0-9_-]{{20,}}' {p} | head -5",
@@ -1432,7 +1435,7 @@ def _build_pii_commands(output_path: Path) -> list[str]:
 
 def _print_pii_guidance(output_path: Path) -> None:
     """Print PII review guidance with concrete grep commands."""
-    abs_output = output_path.resolve()
+    q = shlex.quote(str(output_path.resolve()))
     print(f"\n{'=' * 50}")
     print("  IMPORTANT: Review your data before uploading!")
     print(f"{'=' * 50}")
@@ -1440,20 +1443,20 @@ def _print_pii_guidance(output_path: Path) -> None:
     print("You should scan the exported data for remaining PII.")
     print()
     print("Quick checks (run these and review any matches):")
-    print(f"  grep -i 'your_name' {abs_output}")
-    print(f"  grep -oE '[a-zA-Z0-9.+-]+@[a-zA-Z0-9.-]+\\.[a-z]{{2,}}' {abs_output} | grep -v noreply | head -20")
-    print(f"  grep -oE 'eyJ[A-Za-z0-9_-]{{20,}}' {abs_output} | head -5")
-    print(f"  grep -oE '(ghp_|sk-|hf_)[A-Za-z0-9_-]{{10,}}' {abs_output} | head -5")
-    print(f"  grep -oE '[0-9]{{1,3}}\\.[0-9]{{1,3}}\\.[0-9]{{1,3}}\\.[0-9]{{1,3}}' {abs_output} | sort -u")
+    print(f"  grep -i 'your_name' {q}")
+    print(f"  grep -oE '[a-zA-Z0-9.+-]+@[a-zA-Z0-9.-]+\\.[a-z]{{2,}}' {q} | grep -v noreply | head -20")
+    print(f"  grep -oE 'eyJ[A-Za-z0-9_-]{{20,}}' {q} | head -5")
+    print(f"  grep -oE '(ghp_|sk-|hf_)[A-Za-z0-9_-]{{10,}}' {q} | head -5")
+    print(f"  grep -oE '[0-9]{{1,3}}\\.[0-9]{{1,3}}\\.[0-9]{{1,3}}\\.[0-9]{{1,3}}' {q} | sort -u")
     print()
     print("NEXT: Ask for full name to run an exact-name privacy check, then scan for it:")
-    print(f"  grep -i 'THEIR_NAME' {abs_output} | head -10")
+    print(f"  grep -i 'THEIR_NAME' {q} | head -10")
     print("  If user declines sharing full name: use safety-dataclaw confirm --skip-full-name-scan with a skip attestation.")
     print()
     print("To add custom redactions, then re-export:")
     print("  safety-dataclaw config --redact-usernames 'github_handle,discord_name'")
     print("  safety-dataclaw config --redact 'secret-domain.com,my-api-key'")
-    print(f"  safety-dataclaw export --no-push -o {abs_output}")
+    print(f"  safety-dataclaw export --no-push -o {q}")
     print()
     print(f"Found an issue? Help improve safety-dataclaw: {REPO_URL}/issues")
 
