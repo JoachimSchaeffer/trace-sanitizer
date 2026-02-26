@@ -65,7 +65,7 @@ class TestTracedClient:
 
         client = TracedClient(api_key="sdcl_test", base_url="https://traced.run")
         with pytest.raises(TracedApiError, match="upload permission"):
-            client.upload(sessions=[], source="claude")
+            client.upload(sessions=[{"title": "test"}], source="claude")
 
     @patch("safety_dataclaw.traced_api.requests.get")
     def test_list_datasets(self, mock_get):
