@@ -18,7 +18,7 @@ dependencies = [
 safety-dataclaw = "safety_dataclaw.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "fastapi", "httpx"]
 
 [tool.setuptools.packages.find]
 include = ["safety_dataclaw*"]
