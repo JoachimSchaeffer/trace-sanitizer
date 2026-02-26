@@ -52,6 +52,12 @@ STEP 4B — PRESENT ALL FOLDERS (REQUIRED BEFORE EXPORT)
   safety-dataclaw config --exclude "project1,project2" OR safety-dataclaw config --confirm-projects
   Do not export until folder selection is explicitly confirmed.
 
+STEP 4C — CHOOSE TOOL OUTPUT INCLUSION (REQUIRED BEFORE EXPORT)
+  Ask the user: should tool outputs (file contents, bash stdout, grep results) be included?
+  Including them provides richer trajectory data but increases export size significantly.
+  Secrets are still redacted either way.
+  safety-dataclaw config --include-tool-outputs OR safety-dataclaw config --no-tool-outputs
+
 STEP 5 — REVIEW + CONFIRM (REQUIRED BEFORE UPLOAD)
   safety-dataclaw export --no-push --output /tmp/safety_dataclaw_export.jsonl
   Review PII findings and apply excludes/redactions as needed.
@@ -61,7 +67,7 @@ STEP 5 — REVIEW + CONFIRM (REQUIRED BEFORE UPLOAD)
 
 STEP 6 — UPLOAD (ONLY AFTER EXPLICIT USER APPROVAL)
   safety-dataclaw upload
-  After upload, visit https://traced.run/datasets to publish individual trajectories.
+  After upload, visit https://traced.run to publish individual trajectories.
 
 IF ANY COMMAND FAILS DUE TO A SKIPPED STEP:
   Restate the checklist above and resume from the blocked step (do not skip ahead).
@@ -195,7 +201,7 @@ Each line in the JSONL export is one session:
       "role": "assistant",
       "content": "I'll investigate the login flow.",
       "thinking": "The user wants me to look at...",
-      "tool_uses": [{"tool": "Read", "input": "src/auth.py"}],
+      "tool_uses": [{"tool": "Read", "input": "src/auth.py", "output": "(only with --include-tool-outputs)"}],
       "timestamp": "..."
     }
   ],
