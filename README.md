@@ -151,7 +151,7 @@ safety-dataclaw upload
 | Assistant responses | Yes | Full text output |
 | Extended thinking | Yes | Claude's reasoning (opt out with `--no-thinking`) |
 | Tool calls | Yes | Tool name + summarized input |
-| Tool results | No | Not stored in session logs |
+| Tool results | Optional | Opt in with `--include-tool-outputs` (secrets redacted) |
 | Token usage | Yes | Input/output tokens per session |
 | Model & metadata | Yes | Model name, git branch, timestamps |
 
