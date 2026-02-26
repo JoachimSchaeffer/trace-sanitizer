@@ -8,7 +8,6 @@ import pytest
 
 from safety_dataclaw.cli import (
     _build_status_next_steps,
-    _build_dataset_card,
     _collect_review_attestations,
     _format_size,
     _format_token_count,
@@ -21,7 +20,6 @@ from safety_dataclaw.cli import (
     cmd_auth,
     cmd_upload,
     configure,
-    default_repo_name,
     export_to_jsonl,
     list_projects,
     main,
@@ -215,63 +213,6 @@ class TestMergeConfigList:
         assert config["items"] == ["a"]
 
 
-# --- default_repo_name ---
-
-
-class TestDefaultRepoName:
-    def test_format(self):
-        result = default_repo_name("alice")
-        assert result == "alice/my-personal-codex-data"
-
-    def test_contains_username(self):
-        result = default_repo_name("bob")
-        assert "bob" in result
-        assert "/" in result
-
-
-# --- _build_dataset_card ---
-
-
-class TestBuildDatasetCard:
-    def test_returns_valid_markdown(self):
-        meta = {
-            "models": {"claude-sonnet-4-20250514": 10},
-            "sessions": 10,
-            "projects": ["proj1"],
-            "total_input_tokens": 50000,
-            "total_output_tokens": 3000,
-            "exported_at": "2025-01-15T10:00:00+00:00",
-        }
-        card = _build_dataset_card("user/repo", meta)
-        assert "---" in card  # YAML frontmatter
-        assert "safety-dataclaw" in card
-        assert "claude-sonnet" in card
-        assert "10" in card
-
-    def test_yaml_frontmatter(self):
-        meta = {
-            "models": {}, "sessions": 0, "projects": [],
-            "total_input_tokens": 0, "total_output_tokens": 0,
-            "exported_at": "",
-        }
-        card = _build_dataset_card("user/repo", meta)
-        lines = card.strip().split("\n")
-        assert lines[0] == "---"
-        # Find second ---
-        second_dash = [i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"]
-        assert len(second_dash) >= 1
-
-    def test_contains_traced_reference(self):
-        meta = {
-            "models": {}, "sessions": 0, "projects": [],
-            "total_input_tokens": 0, "total_output_tokens": 0,
-            "exported_at": "",
-        }
-        card = _build_dataset_card("alice/my-dataset", meta)
-        assert "traced" in card.lower()
-        assert "safety-dataclaw" in card
-
-
 # --- export_to_jsonl ---
 
 
@@ -356,16 +297,6 @@ class TestExportToJsonl:
 
 
 class TestConfigure:
-    def test_sets_repo(self, tmp_config, monkeypatch, capsys):
-        # Also monkeypatch the cli module's references
-        monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"repo": None, "excluded_projects": [], "redact_strings": []})
-        saved = {}
-        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
-
-        configure(repo="alice/my-repo")
-        assert saved["repo"] == "alice/my-repo"
-
     def test_merges_exclude(self, tmp_config, monkeypatch, capsys):
         monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
         monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"excluded_projects": ["a"], "redact_strings": []})
@@ -377,7 +308,7 @@ class TestConfigure:
 
     def test_sets_source(self, tmp_config, monkeypatch, capsys):
         monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"repo": None, "source": None})
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": None})
         saved = {}
         monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
 

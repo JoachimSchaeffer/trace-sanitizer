@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, cast
 
+from . import __version__
 from .anonymizer import Anonymizer
 from .config import CONFIG_FILE, SafetyDataclawConfig, load_config, save_config
 from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, parse_project_sessions
@@ -159,11 +160,6 @@ def _format_token_count(count: int) -> str:
     return str(count)
 
 
-def default_repo_name(username: str) -> str:
-    """Standard repo name: {username}/my-personal-codex-data"""
-    return f"{username}/my-personal-codex-data"
-
-
 def _compute_stage(config: SafetyDataclawConfig) -> tuple[str, int, str | None]:
     """Return (stage_name, stage_number, username).
 
@@ -298,7 +294,6 @@ def _merge_config_list(config: SafetyDataclawConfig, key: str, new_values: list[
 
 
 def configure(
-    repo: str | None = None,
     source: str | None = None,
     exclude: list[str] | None = None,
     redact: list[str] | None = None,
@@ -307,8 +302,6 @@ def configure(
 ):
     """Set config values non-interactively. Lists are MERGED (append), not replaced."""
     config = load_config()
-    if repo is not None:
-        config["repo"] = repo
     if source is not None:
         config["source"] = source
     if exclude is not None:
@@ -385,108 +378,6 @@ def export_to_jsonl(
         "total_output_tokens": total_output_tokens,
         "exported_at": datetime.now(tz=timezone.utc).isoformat(),
     }
-
-
-def _build_dataset_card(repo_id: str, meta: dict) -> str:
-    models = meta.get("models", {})
-    sessions = meta.get("sessions", 0)
-    projects = meta.get("projects", [])
-    total_input = meta.get("total_input_tokens", 0)
-    total_output = meta.get("total_output_tokens", 0)
-    timestamp = meta.get("exported_at", "")[:10]
-
-    model_tags = "\n".join(f"  - {m}" for m in sorted(models.keys()) if m != "unknown")
-    model_lines = "\n".join(
-        f"| {m} | {c} |" for m, c in sorted(models.items(), key=lambda x: -x[1])
-    )
-
-    return f"""---
-license: mit
-task_categories:
-  - text-generation
-language:
-  - en
-tags:
-  - safety-dataclaw
-  - traced
-  - claude-code
-  - codex-cli
-  - gemini-cli
-  - conversations
-  - coding-assistant
-  - tool-use
-  - agentic-coding
-{model_tags}
-pretty_name: Coding Agent Conversations
-configs:
-  - config_name: default
-    data_files: conversations.jsonl
----
-
-# Coding Agent Conversation Logs
-
-Exported with [safety-dataclaw]({REPO_URL}) and uploaded to [TRACED](https://traced.run).
-
-## Stats
-
-| Metric | Value |
-|--------|-------|
-| Sessions | {sessions} |
-| Projects | {len(projects)} |
-| Input tokens | {_format_token_count(total_input)} |
-| Output tokens | {_format_token_count(total_output)} |
-| Last updated | {timestamp} |
-
-### Models
-
-| Model | Sessions |
-|-------|----------|
-{model_lines}
-
-## Schema
-
-Each line in `conversations.jsonl` is one conversation session:
-
-```json
-{{
-  "session_id": "uuid",
-  "project": "my-project",
-  "model": "gpt-5.3-codex",
-  "git_branch": "main",
-  "start_time": "2025-01-15T10:00:00+00:00",
-  "end_time": "2025-01-15T10:30:00+00:00",
-  "messages": [
-    {{"role": "user", "content": "Fix the login bug", "timestamp": "..."}},
-    {{
-      "role": "assistant",
-      "content": "I'll investigate the login flow.",
-      "thinking": "The user wants me to...",
-      "tool_uses": [{{"tool": "Read", "input": "src/auth.py"}}],
-      "timestamp": "..."
-    }}
-  ],
-  "stats": {{
-    "user_messages": 5,
-    "assistant_messages": 8,
-    "tool_uses": 20,
-    "input_tokens": 50000,
-    "output_tokens": 3000
-  }}
-}}
-```
-
-### Privacy
-
-- Paths anonymized to project-relative; usernames hashed
-- No tool outputs — only tool call inputs (summaries)
-
-## Export your own
-
-```bash
-pip install safety-dataclaw
-safety-dataclaw
-```
-"""
 
 
 def update_skill(target: str) -> None:
@@ -1102,7 +993,7 @@ def cmd_upload(args) -> None:
             sessions=sessions,
             source=config.get("source", "all"),
             metadata={
-                "safety_dataclaw_version": "0.1.0",
+                "safety_dataclaw_version": __version__,
                 "redactions": config.get("last_export", {}).get("redactions", 0),
             },
         )
@@ -1232,7 +1123,6 @@ def main() -> None:
     us.add_argument("target", choices=["claude"], help="Agent to install skill for")
 
     cfg = sub.add_parser("config", help="View or set config")
-    cfg.add_argument("--repo", type=str, help="Set dataset repo name")
     cfg.add_argument("--source", choices=sorted(EXPLICIT_SOURCE_CHOICES),
                      help="Set export source scope explicitly: claude, codex, gemini, or all")
     cfg.add_argument("--exclude", type=str, help="Comma-separated projects to exclude")
@@ -1247,7 +1137,6 @@ def main() -> None:
     # Export flags on both the subcommand and root parser so `safety-dataclaw --no-push` works
     for target in (exp, parser):
         target.add_argument("--output", "-o", type=Path, default=None)
-        target.add_argument("--repo", "-r", type=str, default=None)
         target.add_argument("--source", choices=SOURCE_CHOICES, default="auto")
         target.add_argument("--all-projects", action="store_true")
         target.add_argument("--no-thinking", action="store_true")
@@ -1325,8 +1214,7 @@ def _parse_csv_arg(value: str | None) -> list[str] | None:
 def _handle_config(args) -> None:
     """Handle the config subcommand."""
     has_changes = (
-        args.repo
-        or args.source
+        args.source
         or args.exclude
         or args.redact
         or args.redact_usernames
@@ -1336,7 +1224,6 @@ def _handle_config(args) -> None:
         print(json.dumps(_mask_config_for_display(load_config()), indent=2))
         return
     configure(
-        repo=args.repo,
         source=args.source,
         exclude=_parse_csv_arg(args.exclude),
         redact=_parse_csv_arg(args.redact),

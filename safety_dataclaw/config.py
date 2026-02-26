@@ -1,6 +1,7 @@
 """Persistent config for safety-dataclaw — stored at ~/.safety-dataclaw/config.json"""
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import TypedDict, cast
@@ -50,8 +51,9 @@ def load_config() -> SafetyDataclawConfig:
 def save_config(config: SafetyDataclawConfig) -> None:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, "w") as f:
+        # Create file with 0600 from the start to avoid TOCTOU race
+        fd = os.open(str(CONFIG_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(config, f, indent=2)
-        CONFIG_FILE.chmod(0o600)
     except OSError as e:
         print(f"Warning: could not save {CONFIG_FILE}: {e}", file=sys.stderr)

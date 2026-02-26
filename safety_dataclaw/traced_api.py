@@ -4,6 +4,8 @@ from typing import Any
 
 import requests
 
+from . import __version__
+
 
 class TracedApiError(Exception):
     """Raised when the TRACED API returns an error."""
@@ -28,7 +30,7 @@ class TracedClient:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "safety-dataclaw/0.1.0",
+            "User-Agent": f"safety-dataclaw/{__version__}",
         }
 
     def verify(self) -> dict[str, Any]:
