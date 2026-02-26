@@ -1,6 +1,16 @@
 # Safety-DataClaw
 
-Sanitize and upload AI agent trajectories to [traced.run](https://traced.run). Safety-DataClaw parses session logs from Claude Code, Codex, Gemini CLI, and OpenCode, redacts secrets and PII locally, and uploads the sanitized result as private datasets to TRACED.
+Don't put your AI trajectories on HF. Donate them for AI safety.
+
+Safety-DataClaw sanitize and upload and donates AI agent trajectories to [traced.run](https://traced.run).
+There you can see the trajectories that you donated and the platform allows you to publish the interesting trajectories in the feed and chat about them with the community.
+
+Supporting: Claude Code, Codex, Gemini CLI, and OpenCode.
+
+We need to differentially acccelerate defensive technologies such as monitoring and alignment to prepare for a wordl with powerful AI.
+Donating your trajectories with safety-dataclaw will actively support AI safety research.
+
+Please reach out if you have any privacy concerns. Safety Dataclaw builds on DataClaw.
 
 **Core principle:** Safety-conscious users should never have to send unsanitized data off their machine. The CLI sanitizes locally; only clean data is uploaded.
 
