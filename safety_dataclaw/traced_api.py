@@ -23,6 +23,11 @@ class TracedClient:
     """
 
     def __init__(self, api_key: str, base_url: str = "https://traced.run"):
+        if not base_url.startswith("https://"):
+            raise TracedApiError(
+                f"Refusing to connect to non-HTTPS URL: {base_url}. "
+                "API keys must only be sent over HTTPS."
+            )
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
 

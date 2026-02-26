@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -334,7 +335,8 @@ def export_to_jsonl(
     project_names = []
 
     try:
-        fh = open(output_path, "w")
+        fd = os.open(str(output_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fh = os.fdopen(fd, "w")
     except OSError as e:
         print(f"Error: cannot write to {output_path}: {e}", file=sys.stderr)
         sys.exit(1)
@@ -910,7 +912,10 @@ def confirm(
 def cmd_auth(args) -> None:
     """Authenticate with TRACED API."""
     config = load_config()
-    key = args.key
+    key = args.key or os.environ.get("SAFETY_DATACLAW_API_KEY")
+    if not key:
+        print(json.dumps({"error": "API key required. Pass as argument or set SAFETY_DATACLAW_API_KEY env var."}))
+        return
 
     # Validate key format
     if not key.startswith("sdcl_"):
@@ -1091,7 +1096,9 @@ def main() -> None:
 
     # auth subcommand
     auth_parser = sub.add_parser("auth", help="Authenticate with TRACED API")
-    auth_parser.add_argument("key", type=str, help="Your TRACED API key (starts with sdcl_)")
+    auth_parser.add_argument("key", nargs="?", type=str, default=None,
+                             help="Your TRACED API key (starts with sdcl_). "
+                                  "Also accepts SAFETY_DATACLAW_API_KEY env var.")
 
     # upload subcommand
     upload_parser = sub.add_parser("upload", help="Upload exported data to TRACED")
