@@ -1,24 +1,18 @@
 # Safety-DataClaw
 
-Don't put your AI trajectories on HF. Donate them for AI safety.
-
-Safety-DataClaw sanitizes and donates AI agent trajectories to [traced.run](https://traced.run).
-There you can see the trajectories that you donated, publish the interesting ones in the feed, and chat about them with the community.
-
+This project sanitizes you claude code trajectories. We are planning on dveloping a feature that allows you to donate your trajecotires for research.
 Supporting: Claude Code, Codex, Gemini CLI, and OpenCode.
 
-We need to differentially accelerate defensive technologies such as monitoring and alignment to prepare for a world with powerful AI.
-Donating your trajectories with safety-dataclaw will actively support AI safety research.
-
-Please reach out if you have any privacy concerns. Safety Dataclaw builds on DataClaw.
-
-**Donating trajectories will be enabled shortly.** The CLI and traced.run are in active development — stay tuned.
-
-**Core principle:** Safety-conscious users should never have to send unsanitized data off their machine. The CLI sanitizes locally; only clean data is uploaded.
+Here's the pitch:
+Don't put your AI trajectories on HF. Donate them for AI safety.
+We need better AI safety not more capable open source models.
+I believe Claude Code trajectories are very valuable for alignment research and want to make it easy to contribute to this research.
 
 ![Safety-DataClaw](safety-dataclaw-meme.png)
 
-## Give this to your agent
+**Core principle:** Safety-conscious users should never have to send unsanitized data off their machine. The CLI sanitizes locally; only clean data is uploaded.
+
+## Give this to your coding agent
 
 Paste this into Claude Code, Codex, or any coding agent:
 
