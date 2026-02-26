@@ -197,12 +197,6 @@ Each line in the JSONL export is one session:
 
 </details>
 
-## Code Quality
-
-<p align="center">
-  <img src="scorecard.png" alt="Code Quality Scorecard">
-</p>
-
 ## License
 
 MIT — forked from [dataclaw](https://github.com/peteromallet/dataclaw) by Banodoco.
