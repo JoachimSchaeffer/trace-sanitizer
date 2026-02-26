@@ -189,6 +189,7 @@ class _CodexParseState:
     stats: dict[str, int] = dataclasses.field(default_factory=_make_stats)
     pending_tool_uses: list[dict[str, str | None]] = dataclasses.field(default_factory=list)
     pending_thinking: list[str] = dataclasses.field(default_factory=list)
+    _pending_thinking_seen: set[str] = dataclasses.field(default_factory=set)
     raw_cwd: str = UNKNOWN_CODEX_CWD
     max_input_tokens: int = 0
     max_output_tokens: int = 0
@@ -231,7 +232,10 @@ def _parse_codex_session_file(
                 elif event_type == "agent_reasoning" and include_thinking:
                     thinking = payload.get("text")
                     if isinstance(thinking, str) and thinking.strip():
-                        state.pending_thinking.append(anonymizer.text(thinking.strip()))
+                        cleaned = anonymizer.text(thinking.strip())
+                        if cleaned not in state._pending_thinking_seen:
+                            state._pending_thinking_seen.add(cleaned)
+                            state.pending_thinking.append(cleaned)
                 elif event_type == "user_message":
                     _handle_codex_user_message(state, payload, timestamp, anonymizer)
                 elif event_type == "agent_message":
@@ -312,7 +316,10 @@ def _handle_codex_response_item(
                 continue
             text = summary.get("text")
             if isinstance(text, str) and text.strip():
-                state.pending_thinking.append(anonymizer.text(text.strip()))
+                cleaned = anonymizer.text(text.strip())
+                if cleaned not in state._pending_thinking_seen:
+                    state._pending_thinking_seen.add(cleaned)
+                    state.pending_thinking.append(cleaned)
 
 
 def _handle_codex_token_count(state: _CodexParseState, payload: dict[str, Any]) -> None:
@@ -367,6 +374,7 @@ def _handle_codex_agent_message(
 
     state.pending_tool_uses.clear()
     state.pending_thinking.clear()
+    state._pending_thinking_seen.clear()
 
 
 def _flush_codex_pending(state: _CodexParseState, timestamp: str | None) -> None:
@@ -386,6 +394,7 @@ def _flush_codex_pending(state: _CodexParseState, timestamp: str | None) -> None
 
     state.pending_tool_uses.clear()
     state.pending_thinking.clear()
+    state._pending_thinking_seen.clear()
 
 
 def _parse_codex_tool_arguments(arguments: Any) -> Any:
