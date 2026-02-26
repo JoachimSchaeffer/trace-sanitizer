@@ -33,7 +33,7 @@ Run `safety-dataclaw status` (or `safety-dataclaw prep` for full details) and fo
 ## Output Format
 
 - `safety-dataclaw prep`, `safety-dataclaw config`, `safety-dataclaw status`, and `safety-dataclaw confirm` output pure JSON
-- `safety-dataclaw export` outputs human-readable text followed by `---DATACLAW_JSON---` and a JSON block
+- `safety-dataclaw export` outputs human-readable text followed by `---SAFETY_DATACLAW_JSON---` and a JSON block
 - Always parse the JSON and act on `next_steps`
 
 Key fields:

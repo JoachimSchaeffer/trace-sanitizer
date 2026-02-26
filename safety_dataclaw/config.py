@@ -9,7 +9,7 @@ CONFIG_DIR = Path.home() / ".safety-dataclaw"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
-class DataClawConfig(TypedDict, total=False):
+class SafetyDataclawConfig(TypedDict, total=False):
     """Expected shape of the config dict."""
 
     api_key: str | None
@@ -27,7 +27,7 @@ class DataClawConfig(TypedDict, total=False):
     publish_attestation: str
 
 
-DEFAULT_CONFIG: DataClawConfig = {
+DEFAULT_CONFIG: SafetyDataclawConfig = {
     "api_key": None,
     "traced_url": "https://traced.run",
     "source": None,
@@ -36,18 +36,18 @@ DEFAULT_CONFIG: DataClawConfig = {
 }
 
 
-def load_config() -> DataClawConfig:
+def load_config() -> SafetyDataclawConfig:
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE) as f:
                 stored = json.load(f)
-            return cast(DataClawConfig, {**DEFAULT_CONFIG, **stored})
+            return cast(SafetyDataclawConfig, {**DEFAULT_CONFIG, **stored})
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: could not read {CONFIG_FILE}: {e}", file=sys.stderr)
-    return cast(DataClawConfig, dict(DEFAULT_CONFIG))
+    return cast(SafetyDataclawConfig, dict(DEFAULT_CONFIG))
 
 
-def save_config(config: DataClawConfig) -> None:
+def save_config(config: SafetyDataclawConfig) -> None:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:

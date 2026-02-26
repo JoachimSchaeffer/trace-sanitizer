@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from .anonymizer import Anonymizer
-from .config import CONFIG_FILE, DataClawConfig, load_config, save_config
+from .config import CONFIG_FILE, SafetyDataclawConfig, load_config, save_config
 from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, parse_project_sessions
 from .secrets import _has_mixed_char_types, _shannon_entropy, redact_session
 
@@ -103,7 +103,7 @@ def _is_explicit_source_choice(source_filter: str | None) -> bool:
 
 def _resolve_source_choice(
     requested_source: str,
-    config: DataClawConfig | None = None,
+    config: SafetyDataclawConfig | None = None,
 ) -> tuple[str, bool]:
     """Resolve source choice from CLI + config.
 
@@ -164,7 +164,7 @@ def default_repo_name(username: str) -> str:
     return f"{username}/my-personal-codex-data"
 
 
-def _compute_stage(config: DataClawConfig) -> tuple[str, int, str | None]:
+def _compute_stage(config: SafetyDataclawConfig) -> tuple[str, int, str | None]:
     """Return (stage_name, stage_number, username).
 
     Uses traced.run API key for auth.
@@ -185,7 +185,7 @@ def _compute_stage(config: DataClawConfig) -> tuple[str, int, str | None]:
 
 
 def _build_status_next_steps(
-    stage: str, config: DataClawConfig, username: str | None, repo_id: str | None,
+    stage: str, config: SafetyDataclawConfig, username: str | None, repo_id: str | None,
 ) -> tuple[list[str], str | None]:
     """Return (next_steps, next_command) for the given stage."""
     if stage == "auth":
@@ -290,7 +290,7 @@ def list_projects(source_filter: str = "auto") -> None:
     ))
 
 
-def _merge_config_list(config: DataClawConfig, key: str, new_values: list[str]) -> None:
+def _merge_config_list(config: SafetyDataclawConfig, key: str, new_values: list[str]) -> None:
     """Append new_values to a config list (deduplicated, sorted)."""
     existing = set(config.get(key, []))
     existing.update(new_values)
@@ -551,7 +551,7 @@ def _find_export_file(file_path: Path | None) -> Path:
     if file_path and file_path.exists():
         return file_path
     if file_path is None:
-        for c in [Path("/tmp/safety_dataclaw_export.jsonl"), Path("/tmp/dataclaw_export.jsonl"), Path("dataclaw_conversations.jsonl")]:
+        for c in [Path("/tmp/safety_dataclaw_export.jsonl"), Path("safety_dataclaw_conversations.jsonl")]:
             if c.exists():
                 return c
     print(json.dumps({
@@ -1067,7 +1067,7 @@ def cmd_upload(args) -> None:
         export_file = last_export.get("path")
         if not export_file:
             # Try default locations
-            for candidate in [Path("/tmp/safety_dataclaw_export.jsonl"), Path("/tmp/dataclaw_export.jsonl"), Path("dataclaw_conversations.jsonl")]:
+            for candidate in [Path("/tmp/safety_dataclaw_export.jsonl"), Path("safety_dataclaw_conversations.jsonl")]:
                 if candidate.exists():
                     export_file = str(candidate)
                     break
@@ -1155,7 +1155,7 @@ def prep(source_filter: str = "auto") -> None:
     stage, stage_number, _username = _compute_stage(config)
 
     # Build contextual next_steps
-    stage_config = cast(DataClawConfig, dict(config))
+    stage_config = cast(SafetyDataclawConfig, dict(config))
     if source_explicit:
         stage_config["source"] = resolved_source_choice
     next_steps, next_command = _build_status_next_steps(stage, stage_config, None, None)
@@ -1472,7 +1472,7 @@ def _run_export(args) -> None:
         print(f"Redacting custom strings: {len(custom_strings)} configured")
 
     # Export
-    output_path = args.output or Path("dataclaw_conversations.jsonl")
+    output_path = args.output or Path("safety_dataclaw_conversations.jsonl")
 
     print(f"\nExporting to {output_path}...")
     meta = export_to_jsonl(
@@ -1516,7 +1516,7 @@ def _run_export(args) -> None:
             "next_steps": next_steps,
             "next_command": next_command,
         }
-        print("\n---DATACLAW_JSON---")
+        print("\n---SAFETY_DATACLAW_JSON---")
         print(json.dumps(json_block, indent=2))
         return
 
