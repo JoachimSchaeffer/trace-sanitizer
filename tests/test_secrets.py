@@ -108,6 +108,16 @@ class TestScanText:
         findings = scan_text(key)
         assert any(f["type"] == "openai_key" for f in findings)
 
+    def test_docent_key(self):
+        key = "dk_XxZ9B3ywCcqRlYks_NXGEQRjfx4uKs2MngzG5Fe7u6gldwT0EQKr7cCIfms7c"
+        findings = scan_text(key)
+        assert any(f["type"] == "docent_key" for f in findings)
+
+    def test_openai_key_proj_format(self):
+        key = "sk-proj-7-2_xQ98YDR6h5bZMPnrZFOaE2jGosF3BTJ0FsK0Omf15lWMEuiYXdUZlz"
+        findings = scan_text(key)
+        assert any(f["type"] == "openai_key" for f in findings)
+
     def test_hf_token(self):
         token = "hf_" + "a" * 30
         findings = scan_text(token)

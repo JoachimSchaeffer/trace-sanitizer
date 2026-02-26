@@ -19,20 +19,23 @@ SECRET_PATTERNS = [
     # Anthropic API keys
     ("anthropic_key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
 
-    # OpenAI API keys
-    ("openai_key", re.compile(r"sk-[A-Za-z0-9]{40,}")),
+    # OpenAI API keys (including sk-proj- format with hyphens/underscores)
+    ("openai_key", re.compile(r"sk-[A-Za-z0-9_-]{40,}")),
+
+    # Docent API keys
+    ("docent_key", re.compile(r"dk_[A-Za-z0-9_-]{20,}")),
 
     # Hugging Face tokens
-    ("hf_token", re.compile(r"hf_[A-Za-z0-9]{20,}")),
+    ("hf_token", re.compile(r"hf_[A-Za-z0-9_-]{20,}")),
 
     # GitHub tokens
-    ("github_token", re.compile(r"(?:ghp|gho|ghs|ghr)_[A-Za-z0-9]{30,}")),
+    ("github_token", re.compile(r"(?:ghp|gho|ghs|ghr)_[A-Za-z0-9_-]{30,}")),
 
     # PyPI tokens
     ("pypi_token", re.compile(r"pypi-[A-Za-z0-9_-]{50,}")),
 
     # NPM tokens
-    ("npm_token", re.compile(r"npm_[A-Za-z0-9]{30,}")),
+    ("npm_token", re.compile(r"npm_[A-Za-z0-9_-]{30,}")),
 
     # AWS access key IDs (but not in regex pattern context)
     ("aws_key", re.compile(r"(?<![A-Za-z0-9\[])AKIA[0-9A-Z]{16}(?![0-9A-Z\]{}])")),
@@ -47,7 +50,7 @@ SECRET_PATTERNS = [
     ("gcloud_key", re.compile(r"AIza[A-Za-z0-9_-]{35}")),
 
     # Stripe keys (secret, publishable, restricted)
-    ("stripe_key", re.compile(r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{20,}")),
+    ("stripe_key", re.compile(r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9_-]{20,}")),
 
     # SendGrid API keys
     ("sendgrid_key", re.compile(r"SG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{22,}")),
@@ -59,7 +62,7 @@ SECRET_PATTERNS = [
     ("digitalocean_token", re.compile(r"dop_v1_[a-f0-9]{64}")),
 
     # Mailgun API keys
-    ("mailgun_key", re.compile(r"key-[A-Za-z0-9]{32}")),
+    ("mailgun_key", re.compile(r"key-[A-Za-z0-9_-]{32}")),
 
     # Slack tokens
     ("slack_token", re.compile(r"xox[bpsa]-[A-Za-z0-9-]{20,}")),
