@@ -1,7 +1,5 @@
 """Tests for the FastAPI sanitization microservice."""
 
-import pytest
-
 from fastapi.testclient import TestClient
 
 from server.app import app
