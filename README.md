@@ -1,4 +1,6 @@
-# Safety-DataClaw
+# Safety-DataClaw: Sanitize your Claude Code Trajectories and Prepare them for Donation or Publication
+
+## The authentifiction and upload step are currently in develpment.
 
 This project sanitizes you claude code trajectories. We are planning on dveloping a feature that allows you to donate your trajecotires for research.
 Supporting: Claude Code, Codex, Gemini CLI, and OpenCode.
