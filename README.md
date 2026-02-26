@@ -136,6 +136,7 @@ safety-dataclaw upload
 | `safety-dataclaw export --source all --no-push` | Export all sources locally |
 | `safety-dataclaw export --all-projects` | Include everything (ignore exclusions) |
 | `safety-dataclaw export --no-thinking` | Exclude extended thinking blocks |
+| `safety-dataclaw export --include-tool-outputs` | Include tool results (file contents, bash stdout, etc.) |
 | `safety-dataclaw confirm --full-name "NAME" ...` | Scan for PII, run exact-name privacy check, verify review attestations, unlock uploading |
 | `safety-dataclaw upload` | Upload sanitized data to TRACED as private datasets |
 | `safety-dataclaw update-skill claude` | Install/update the safety-dataclaw skill for Claude Code |
