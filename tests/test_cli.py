@@ -18,12 +18,13 @@ from safety_dataclaw.cli import (
     _scan_high_entropy_strings,
     _scan_pii,
     _validate_publish_attestation,
+    cmd_auth,
+    cmd_upload,
     configure,
     default_repo_name,
     export_to_jsonl,
     list_projects,
     main,
-    push_to_huggingface,
 )
 
 
@@ -153,6 +154,12 @@ class TestAttestationHelpers:
         _normalized, err = _validate_publish_attestation("ok to go")
         assert err is not None
 
+    def test_validate_publish_attestation_upload(self):
+        _normalized, err = _validate_publish_attestation(
+            "User explicitly approved uploading this dataset now."
+        )
+        assert err is None
+
     def test_scan_for_text_occurrences(self, tmp_path):
         f = tmp_path / "sample.jsonl"
         f.write_text('{"message":"Jane Doe says hi"}\n{"message":"nothing here"}\n')
@@ -237,7 +244,7 @@ class TestBuildDatasetCard:
         }
         card = _build_dataset_card("user/repo", meta)
         assert "---" in card  # YAML frontmatter
-        assert "dataclaw" in card
+        assert "safety-dataclaw" in card
         assert "claude-sonnet" in card
         assert "10" in card
 
@@ -254,14 +261,15 @@ class TestBuildDatasetCard:
         second_dash = [i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"]
         assert len(second_dash) >= 1
 
-    def test_contains_repo_id(self):
+    def test_contains_traced_reference(self):
         meta = {
             "models": {}, "sessions": 0, "projects": [],
             "total_input_tokens": 0, "total_output_tokens": 0,
             "exported_at": "",
         }
         card = _build_dataset_card("alice/my-dataset", meta)
-        assert "alice/my-dataset" in card
+        assert "traced" in card.lower()
+        assert "safety-dataclaw" in card
 
 
 # --- export_to_jsonl ---
@@ -436,7 +444,7 @@ class TestListProjects:
             ],
         )
         monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": "codex", "excluded_projects": []})
-        monkeypatch.setattr("sys.argv", ["dataclaw", "list"])
+        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "list"])
         main()
         captured = capsys.readouterr()
         data = json.loads(captured.out)
@@ -444,65 +452,161 @@ class TestListProjects:
         assert data[0]["name"] == "codex:proj2"
 
 
-# --- push_to_huggingface ---
+# --- cmd_auth ---
 
 
-class TestPushToHuggingface:
-    def test_missing_huggingface_hub(self, tmp_path, monkeypatch):
-        jsonl_path = tmp_path / "data.jsonl"
-        jsonl_path.write_text("{}\n")
+class TestCmdAuth:
+    def test_invalid_key_format(self, monkeypatch, capsys):
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
+        args = MagicMock()
+        args.key = "invalid_key_123"
+        cmd_auth(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "error" in data
+        assert "sdcl_" in data["error"]
 
-        # Simulate ImportError for huggingface_hub
-        import builtins
-        real_import = builtins.__import__
+    def test_successful_auth(self, monkeypatch, capsys):
+        saved = {}
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
+        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
 
-        def mock_import(name, *args, **kwargs):
-            if name == "huggingface_hub":
-                raise ImportError("No module named 'huggingface_hub'")
-            return real_import(name, *args, **kwargs)
+        mock_client = MagicMock()
+        mock_client.verify.return_value = {"user": {"name": "alice"}}
+        monkeypatch.setattr(
+            "safety_dataclaw.traced_api.TracedClient",
+            lambda api_key, base_url: mock_client,
+        )
 
-        monkeypatch.setattr(builtins, "__import__", mock_import)
+        args = MagicMock()
+        args.key = "sdcl_test_key_12345"
+        cmd_auth(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["status"] == "authenticated"
+        assert saved.get("api_key") == "sdcl_test_key_12345"
+        assert saved.get("stage") == "configure"
 
-        with pytest.raises(SystemExit):
-            push_to_huggingface(jsonl_path, "user/repo", {})
+    def test_api_error(self, monkeypatch, capsys):
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
 
-    def test_success_flow(self, tmp_path, monkeypatch):
-        jsonl_path = tmp_path / "data.jsonl"
-        jsonl_path.write_text("{}\n")
+        from safety_dataclaw.traced_api import TracedApiError
 
-        mock_api = MagicMock()
-        mock_api.whoami.return_value = {"name": "alice"}
+        mock_client = MagicMock()
+        mock_client.verify.side_effect = TracedApiError("Invalid or revoked API key")
 
-        mock_hfapi_cls = MagicMock(return_value=mock_api)
+        monkeypatch.setattr(
+            "safety_dataclaw.traced_api.TracedClient",
+            lambda api_key, base_url: mock_client,
+        )
 
-        # Patch the import inside push_to_huggingface
-        import safety_dataclaw.cli as cli_mod
-        monkeypatch.setattr(cli_mod, "push_to_huggingface", lambda *a, **kw: None)
+        args = MagicMock()
+        args.key = "sdcl_bad_key_12345"
+        cmd_auth(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "error" in data
+        assert "Invalid" in data["error"]
 
-        # Direct test with mock
-        with patch.dict("sys.modules", {"huggingface_hub": MagicMock(HfApi=mock_hfapi_cls)}):
-            # Re-import would be needed for real test, but let's test the mock setup
-            assert mock_hfapi_cls() == mock_api
+    def test_auth_via_main(self, monkeypatch, capsys):
+        saved = {}
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
+        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
 
-    def test_auth_failure(self, tmp_path, monkeypatch):
-        jsonl_path = tmp_path / "data.jsonl"
-        jsonl_path.write_text("{}\n")
+        mock_client = MagicMock()
+        mock_client.verify.return_value = {"user": {"name": "alice"}}
 
-        mock_api = MagicMock()
-        mock_api.whoami.side_effect = OSError("Auth failed")
+        monkeypatch.setattr(
+            "safety_dataclaw.traced_api.TracedClient",
+            lambda api_key, base_url: mock_client,
+        )
 
-        mock_hf_module = MagicMock()
-        mock_hf_module.HfApi.return_value = mock_api
+        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "auth", "sdcl_test_key_12345"])
+        main()
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["status"] == "authenticated"
 
-        with patch.dict("sys.modules", {"huggingface_hub": mock_hf_module}):
-            # Need to reimport to pick up the mock
-            import importlib
-            import safety_dataclaw.cli
-            importlib.reload(safety_dataclaw.cli)
-            with pytest.raises(SystemExit):
-                safety_dataclaw.cli.push_to_huggingface(jsonl_path, "user/repo", {})
-            # Reload again to restore
-            importlib.reload(safety_dataclaw.cli)
+
+# --- cmd_upload ---
+
+
+class TestCmdUpload:
+    def test_not_authenticated(self, monkeypatch, capsys):
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
+        args = MagicMock()
+        args.file = None
+        cmd_upload(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "error" in data
+        assert "Not authenticated" in data["error"]
+
+    def test_no_export_file(self, monkeypatch, capsys, tmp_path):
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"api_key": "sdcl_test"})
+        args = MagicMock()
+        args.file = str(tmp_path / "nonexistent.jsonl")
+        cmd_upload(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "error" in data
+        assert "No export file found" in data["error"]
+
+    def test_successful_upload(self, monkeypatch, capsys, tmp_path):
+        export_file = tmp_path / "export.jsonl"
+        export_file.write_text('{"session_id":"s1","model":"claude","messages":[]}\n')
+
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {
+            "api_key": "sdcl_test",
+            "traced_url": "https://traced.run",
+            "source": "all",
+            "last_export": {"redactions": 3},
+        })
+
+        mock_client = MagicMock()
+        mock_client.upload.return_value = {"trajectory_ids": ["t1", "t2"]}
+
+        monkeypatch.setattr(
+            "safety_dataclaw.traced_api.TracedClient",
+            lambda api_key, base_url: mock_client,
+        )
+
+        args = MagicMock()
+        args.file = str(export_file)
+        cmd_upload(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["status"] == "uploaded"
+        assert data["count"] == 2
+        assert data["trajectory_ids"] == ["t1", "t2"]
+
+    def test_upload_api_error(self, monkeypatch, capsys, tmp_path):
+        export_file = tmp_path / "export.jsonl"
+        export_file.write_text('{"session_id":"s1","model":"claude","messages":[]}\n')
+
+        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {
+            "api_key": "sdcl_test",
+            "traced_url": "https://traced.run",
+            "source": "all",
+        })
+
+        from safety_dataclaw.traced_api import TracedApiError
+
+        mock_client = MagicMock()
+        mock_client.upload.side_effect = TracedApiError("API key lacks upload permission")
+
+        monkeypatch.setattr(
+            "safety_dataclaw.traced_api.TracedClient",
+            lambda api_key, base_url: mock_client,
+        )
+
+        args = MagicMock()
+        args.file = str(export_file)
+        cmd_upload(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "error" in data
+        assert "upload permission" in data["error"]
 
 
 class TestWorkflowGateMessages:
@@ -516,7 +620,7 @@ class TestWorkflowGateMessages:
         missing = tmp_path / "missing.jsonl"
         monkeypatch.setattr(
             "sys.argv",
-            ["dataclaw", "confirm", "--file", str(missing)],
+            ["safety-dataclaw", "confirm", "--file", str(missing)],
         )
         with pytest.raises(SystemExit):
             main()
@@ -532,7 +636,7 @@ class TestWorkflowGateMessages:
         monkeypatch.setattr(
             "sys.argv",
             [
-                "dataclaw",
+                "safety-dataclaw",
                 "confirm",
                 "--file",
                 str(export_file),
@@ -560,7 +664,7 @@ class TestWorkflowGateMessages:
         monkeypatch.setattr(
             "sys.argv",
             [
-                "dataclaw",
+                "safety-dataclaw",
                 "confirm",
                 "--file",
                 str(export_file),
@@ -578,13 +682,13 @@ class TestWorkflowGateMessages:
         assert payload["stage"] == "confirmed"
         assert payload["full_name_scan"]["skipped"] is True
 
-    def test_push_before_confirm_shows_step_process(self, monkeypatch, capsys):
+    def test_export_before_confirm_shows_step_process(self, monkeypatch, capsys):
         monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"stage": "review", "source": "all"})
-        monkeypatch.setattr("sys.argv", ["dataclaw", "export"])
+        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "export"])
         with pytest.raises(SystemExit):
             main()
         payload = self._extract_json(capsys.readouterr().out)
-        assert payload["error"] == "You must run `dataclaw confirm` before pushing."
+        assert payload["error"] == "You must run `safety-dataclaw confirm` before uploading."
         assert payload["blocked_on_step"] == "Step 2/3"
         assert len(payload["process_steps"]) == 3
         assert "confirm" in payload["process_steps"][1]
@@ -603,14 +707,14 @@ class TestWorkflowGateMessages:
             ],
         )
         monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": "all"})
-        monkeypatch.setattr("sys.argv", ["dataclaw", "export", "--no-push"])
+        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "export", "--no-push"])
         with pytest.raises(SystemExit):
             main()
         payload = self._extract_json(capsys.readouterr().out)
         assert payload["error"] == "Project selection is not confirmed yet."
         assert payload["blocked_on_step"] == "Step 3/6"
         assert len(payload["process_steps"]) == 6
-        assert "prep && dataclaw list" in payload["process_steps"][0]
+        assert "prep && safety-dataclaw list" in payload["process_steps"][0]
         assert payload["required_action"].startswith("Send the full project/folder list")
         assert "in a message" in payload["required_action"]
         assert isinstance(payload["projects"], list)
@@ -619,7 +723,7 @@ class TestWorkflowGateMessages:
 
     def test_export_requires_explicit_source_selection(self, monkeypatch, capsys):
         monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
-        monkeypatch.setattr("sys.argv", ["dataclaw", "export", "--no-push"])
+        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "export", "--no-push"])
         with pytest.raises(SystemExit):
             main()
         payload = self._extract_json(capsys.readouterr().out)
@@ -627,16 +731,16 @@ class TestWorkflowGateMessages:
         assert payload["blocked_on_step"] == "Step 2/6"
         assert len(payload["process_steps"]) == 6
         assert payload["allowed_sources"] == ["all", "both", "claude", "codex", "gemini", "opencode"]
-        assert payload["next_command"] == "dataclaw config --source all"
+        assert payload["next_command"] == "safety-dataclaw config --source all"
 
     def test_configure_next_steps_require_full_folder_presentation(self):
         steps, _next = _build_status_next_steps(
             "configure",
             {"projects_confirmed": False},
-            "alice",
-            "alice/my-personal-codex-data",
+            None,
+            None,
         )
-        assert any("dataclaw list" in step for step in steps)
+        assert any("safety-dataclaw list" in step for step in steps)
         assert any("FULL project/folder list" in step for step in steps)
         assert any("in your next message" in step for step in steps)
         assert any("source scope" in step.lower() for step in steps)
@@ -645,8 +749,8 @@ class TestWorkflowGateMessages:
         steps, _next = _build_status_next_steps(
             "review",
             {},
-            "alice",
-            "alice/my-personal-codex-data",
+            None,
+            None,
         )
         assert any("exact-name privacy check" in step for step in steps)
         assert any("--skip-full-name-scan" in step for step in steps)
