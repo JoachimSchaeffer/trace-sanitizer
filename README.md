@@ -12,6 +12,8 @@ Donating your trajectories with safety-dataclaw will actively support AI safety 
 
 Please reach out if you have any privacy concerns. Safety Dataclaw builds on DataClaw.
 
+**Donating trajectories will be enabled shortly.** The CLI and traced.run are in active development — stay tuned.
+
 **Core principle:** Safety-conscious users should never have to send unsanitized data off their machine. The CLI sanitizes locally; only clean data is uploaded.
 
 ![Safety-DataClaw](safety-dataclaw-meme.png)
