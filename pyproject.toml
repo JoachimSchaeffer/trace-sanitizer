@@ -23,6 +23,9 @@ dev = ["pytest", "fastapi", "httpx"]
 [tool.setuptools.packages.find]
 include = ["safety_dataclaw*"]
 
+[tool.setuptools.package-data]
+safety_dataclaw = ["data/*.md"]
+
 [project.urls]
 Homepage = "https://github.com/JoachimSchaeffer/safety-dataclaw"
 Repository = "https://github.com/JoachimSchaeffer/safety-dataclaw"
