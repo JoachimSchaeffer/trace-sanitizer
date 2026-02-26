@@ -4,6 +4,8 @@ Sanitize and upload AI agent trajectories to [traced.run](https://traced.run). S
 
 **Core principle:** Safety-conscious users should never have to send unsanitized data off their machine. The CLI sanitizes locally; only clean data is uploaded.
 
+![Safety-DataClaw](safety-dataclaw-meme.png)
+
 ## Give this to your agent
 
 Paste this into Claude Code, Codex, or any coding agent:
