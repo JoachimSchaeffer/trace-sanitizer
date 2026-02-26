@@ -167,7 +167,7 @@ def default_repo_name(username: str) -> str:
 def _compute_stage(config: DataClawConfig) -> tuple[str, int, str | None]:
     """Return (stage_name, stage_number, username).
 
-    Uses traced.run API key for auth instead of HuggingFace.
+    Uses traced.run API key for auth.
     """
     api_key = config.get("api_key")
     if not api_key:
