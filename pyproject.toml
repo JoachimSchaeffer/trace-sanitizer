@@ -20,6 +20,9 @@ safety-dataclaw = "safety_dataclaw.cli:main"
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[tool.setuptools.packages.find]
+include = ["safety_dataclaw*"]
+
 [project.urls]
 Homepage = "https://github.com/JoachimSchaeffer/safety-dataclaw"
 Repository = "https://github.com/JoachimSchaeffer/safety-dataclaw"
