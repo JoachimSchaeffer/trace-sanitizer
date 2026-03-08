@@ -6,9 +6,18 @@ from trace_sanitizer.anonymizer import (
     Anonymizer,
     _hash_username,
     _replace_username,
+    _set_salt,
     anonymize_path,
     anonymize_text,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fixed_salt():
+    """Pin the HMAC salt so hash outputs are deterministic in tests."""
+    _set_salt(b"test-salt-fixed!")
+    yield
+    _set_salt(b"test-salt-fixed!")
 
 
 # --- _hash_username ---
@@ -24,7 +33,7 @@ class TestHashUsername:
     def test_prefix_format(self):
         result = _hash_username("alice")
         assert result.startswith("user_")
-        assert len(result) == 13  # "user_" + 8 hex chars
+        assert len(result) == 21  # "user_" + 16 hex chars
 
     def test_hex_chars(self):
         result = _hash_username("testuser")

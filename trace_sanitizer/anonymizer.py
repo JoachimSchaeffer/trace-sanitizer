@@ -1,12 +1,24 @@
 """Anonymize PII in Claude Code log data."""
 
 import hashlib
+import hmac
 import os
 import re
 
+# Module-level salt: generated once per process (i.e. per export run).
+# This prevents cross-export correlation of username hashes while keeping
+# hashes consistent within a single export.
+_SALT: bytes = os.urandom(16)
+
+
+def _set_salt(salt: bytes) -> None:
+    """Override the module salt (used in tests)."""
+    global _SALT
+    _SALT = salt
+
 
 def _hash_username(username: str) -> str:
-    return "user_" + hashlib.sha256(username.encode()).hexdigest()[:8]
+    return "user_" + hmac.new(_SALT, username.encode(), "sha256").hexdigest()[:16]
 
 
 def _detect_home_dir() -> tuple[str, str]:

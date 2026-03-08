@@ -220,14 +220,190 @@ def _discover_opencode_projects() -> list[dict]:
     return projects
 
 
+def discover_sessions(project_dir_name: str, source: str = CLAUDE_SOURCE) -> list[dict]:
+    """Lightweight session discovery — returns metadata without full parsing.
+
+    Each dict has: session_id, start_time, model, message_count, size_bytes.
+    Sorted by start_time descending (most recent first).
+    """
+    sessions: list[dict] = []
+
+    if source == GEMINI_SOURCE:
+        chats_dir = GEMINI_DIR / project_dir_name / "chats"
+        if chats_dir.exists():
+            for f in chats_dir.glob("session-*.json"):
+                meta = _peek_gemini_session(f)
+                if meta:
+                    sessions.append(meta)
+
+    elif source == OPENCODE_SOURCE:
+        sessions = _peek_opencode_sessions(project_dir_name)
+
+    elif source == CODEX_SOURCE:
+        index = _get_codex_project_index()
+        for f in index.get(project_dir_name, []):
+            meta = _peek_codex_session(f, project_dir_name)
+            if meta:
+                sessions.append(meta)
+
+    else:  # claude
+        project_path = PROJECTS_DIR / project_dir_name
+        if project_path.exists():
+            for f in sorted(project_path.glob("*.jsonl")):
+                meta = _peek_claude_session(f)
+                if meta:
+                    sessions.append(meta)
+            for session_dir in _find_subagent_only_sessions(project_path):
+                meta = _peek_claude_subagent_session(session_dir)
+                if meta:
+                    sessions.append(meta)
+
+    sessions.sort(key=lambda s: s.get("start_time") or "", reverse=True)
+    return sessions
+
+
+def _peek_claude_session(filepath: Path) -> dict | None:
+    """Read just enough of a Claude JSONL to extract session metadata."""
+    try:
+        size = filepath.stat().st_size
+    except OSError:
+        return None
+    meta: dict = {"session_id": filepath.stem, "start_time": None, "model": None,
+                  "message_count": 0, "size_bytes": size}
+    try:
+        count = 0
+        for entry in _iter_jsonl(filepath):
+            if meta["start_time"] is None and entry.get("timestamp"):
+                meta["start_time"] = _normalize_timestamp(entry["timestamp"])
+            if meta["model"] is None and entry.get("type") == "assistant":
+                meta["model"] = entry.get("message", {}).get("model")
+            if entry.get("type") in ("user", "assistant"):
+                count += 1
+        meta["message_count"] = count
+    except OSError:
+        pass
+    return meta
+
+
+def _peek_claude_subagent_session(session_dir: Path) -> dict | None:
+    """Lightweight metadata for a subagent-only session."""
+    subagent_dir = session_dir / "subagents"
+    if not subagent_dir.is_dir():
+        return None
+    files = list(subagent_dir.glob("agent-*.jsonl"))
+    if not files:
+        return None
+    size = sum(f.stat().st_size for f in files)
+    meta: dict = {"session_id": session_dir.name, "start_time": None, "model": None,
+                  "message_count": 0, "size_bytes": size}
+    count = 0
+    for sa_file in sorted(files):
+        try:
+            for entry in _iter_jsonl(sa_file):
+                if meta["start_time"] is None and entry.get("timestamp"):
+                    meta["start_time"] = _normalize_timestamp(entry["timestamp"])
+                if meta["model"] is None and entry.get("type") == "assistant":
+                    meta["model"] = entry.get("message", {}).get("model")
+                if entry.get("type") in ("user", "assistant"):
+                    count += 1
+        except OSError:
+            continue
+    meta["message_count"] = count
+    return meta
+
+
+def _peek_gemini_session(filepath: Path) -> dict | None:
+    """Lightweight metadata for a Gemini session."""
+    try:
+        with open(filepath) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    msgs = data.get("messages", [])
+    model = None
+    for m in msgs:
+        if m.get("type") == "gemini" and m.get("model"):
+            model = m["model"]
+            break
+    return {
+        "session_id": data.get("sessionId", filepath.stem),
+        "start_time": data.get("startTime"),
+        "model": model,
+        "message_count": len(msgs),
+        "size_bytes": filepath.stat().st_size,
+    }
+
+
+def _peek_codex_session(filepath: Path, target_cwd: str) -> dict | None:
+    """Lightweight metadata for a Codex session."""
+    try:
+        size = filepath.stat().st_size
+    except OSError:
+        return None
+    meta: dict = {"session_id": filepath.stem, "start_time": None, "model": None,
+                  "message_count": 0, "size_bytes": size}
+    count = 0
+    try:
+        for entry in _iter_jsonl(filepath):
+            etype = entry.get("type")
+            if etype == "session_meta":
+                meta["model"] = entry.get("model")
+                if meta["start_time"] is None and entry.get("timestamp"):
+                    meta["start_time"] = _normalize_timestamp(entry["timestamp"])
+            elif etype in ("user_message", "assistant_message", "assistant"):
+                count += 1
+                if meta["start_time"] is None and entry.get("timestamp"):
+                    meta["start_time"] = _normalize_timestamp(entry["timestamp"])
+    except OSError:
+        pass
+    meta["message_count"] = count
+    return meta
+
+
+def _peek_opencode_sessions(project_dir_name: str) -> list[dict]:
+    """Lightweight metadata for OpenCode sessions in a project."""
+    if not OPENCODE_DB_PATH.exists():
+        return []
+    index = _get_opencode_project_index()
+    session_ids = index.get(project_dir_name, [])
+    results = []
+    try:
+        with sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True) as conn:
+            conn.row_factory = sqlite3.Row
+            for sid in session_ids:
+                row = conn.execute(
+                    "SELECT id, time_created, time_updated FROM session WHERE id = ?",
+                    (sid,),
+                ).fetchone()
+                if row is None:
+                    continue
+                msg_count = conn.execute(
+                    "SELECT COUNT(*) FROM message WHERE session_id = ?", (sid,),
+                ).fetchone()[0]
+                results.append({
+                    "session_id": row["id"],
+                    "start_time": row["time_created"],
+                    "model": None,
+                    "message_count": msg_count,
+                    "size_bytes": 0,
+                })
+    except (OSError, sqlite3.Error):
+        pass
+    return results
+
+
 def parse_project_sessions(
     project_dir_name: str,
     anonymizer: Anonymizer,
     include_thinking: bool = True,
     source: str = CLAUDE_SOURCE,
     include_tool_outputs: bool = False,
+    session_ids: set[str] | None = None,
 ) -> list[dict]:
-    """Parse all sessions for a project into structured dicts."""
+    """Parse all sessions for a project into structured dicts.
+
+    If session_ids is provided, only sessions whose ID is in the set are parsed.
+    """
     # Note: include_tool_outputs is only supported for Claude sessions.
     # Gemini, Codex, and OpenCode raw formats don't include tool result data.
     if source == GEMINI_SOURCE:
@@ -236,6 +412,8 @@ def parse_project_sessions(
             return []
         sessions = []
         for session_file in sorted(project_path.glob("session-*.json")):
+            if session_ids and session_file.stem not in session_ids:
+                continue
             parsed = _parse_gemini_session_file(session_file, anonymizer, include_thinking)
             if parsed and parsed["messages"]:
                 parsed["project"] = f"gemini:{_resolve_gemini_hash(project_dir_name)}"
@@ -245,9 +423,11 @@ def parse_project_sessions(
 
     if source == OPENCODE_SOURCE:
         index = _get_opencode_project_index()
-        session_ids = index.get(project_dir_name, [])
+        oc_session_ids = index.get(project_dir_name, [])
+        if session_ids:
+            oc_session_ids = [s for s in oc_session_ids if s in session_ids]
         sessions = []
-        for session_id in session_ids:
+        for session_id in oc_session_ids:
             parsed = _parse_opencode_session(
                 session_id,
                 anonymizer=anonymizer,
@@ -263,6 +443,8 @@ def parse_project_sessions(
     if source == CODEX_SOURCE:
         index = _get_codex_project_index()
         session_files = index.get(project_dir_name, [])
+        if session_ids:
+            session_files = [f for f in session_files if f.stem in session_ids]
         sessions = []
         for session_file in session_files:
             parsed = _parse_codex_session_file(
@@ -283,6 +465,8 @@ def parse_project_sessions(
 
     sessions = []
     for session_file in sorted(project_path.glob("*.jsonl")):
+        if session_ids and session_file.stem not in session_ids:
+            continue
         parsed = _parse_claude_session_file(
             session_file, anonymizer, include_thinking, include_tool_outputs,
         )
@@ -292,6 +476,8 @@ def parse_project_sessions(
             sessions.append(parsed)
 
     for session_dir in _find_subagent_only_sessions(project_path):
+        if session_ids and session_dir.name not in session_ids:
+            continue
         parsed = _parse_subagent_session(
             session_dir, anonymizer, include_thinking, include_tool_outputs,
         )
@@ -324,7 +510,7 @@ def _parse_opencode_session(
     stats = _make_stats()
 
     try:
-        with sqlite3.connect(OPENCODE_DB_PATH) as conn:
+        with sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True) as conn:
             conn.row_factory = sqlite3.Row
             session_row = conn.execute(
                 "SELECT id, directory, time_created, time_updated FROM session WHERE id = ?",
@@ -1010,7 +1196,7 @@ def _build_opencode_project_index() -> dict[str, list[str]]:
 
     index: dict[str, list[str]] = {}
     try:
-        with sqlite3.connect(OPENCODE_DB_PATH) as conn:
+        with sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True) as conn:
             rows = conn.execute(
                 "SELECT id, directory FROM session ORDER BY time_updated DESC, id DESC"
             ).fetchall()

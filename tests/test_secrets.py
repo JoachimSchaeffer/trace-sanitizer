@@ -104,22 +104,22 @@ class TestScanText:
         assert any(f["type"] == "anthropic_key" for f in findings)
 
     def test_openai_key(self):
-        key = "sk-" + "a" * 48
+        key = "sk-aB3xZ9qR2mK7pL4wN8yJ5tF1hG6cD0eW2vU8iOkXmNpQr"
         findings = scan_text(key)
         assert any(f["type"] == "openai_key" for f in findings)
 
     def test_docent_key(self):
-        key = "dk_XxZ9B3ywCcqRlYks_NXGEQRjfx4uKs2MngzG5Fe7u6gldwT0EQKr7cCIfms7c"
+        key = "dk_YyA0C4zxDdrSmZlt_OYHFRSkgy5vLt3NohAH6Gf8v7hmeXT1FRLs8dDJgnt8d"
         findings = scan_text(key)
         assert any(f["type"] == "docent_key" for f in findings)
 
     def test_openai_key_proj_format(self):
-        key = "sk-proj-7-2_xQ98YDR6h5bZMPnrZFOaE2jGosF3BTJ0FsK0Omf15lWMEuiYXdUZlz"
+        key = "sk-proj-8-3_yR09ZES7i6cANQosAGPbF3kHptG4CUK1GtL1Png26mXNFvjZYeVAmA"
         findings = scan_text(key)
         assert any(f["type"] == "openai_key" for f in findings)
 
     def test_hf_token(self):
-        token = "hf_" + "a" * 30
+        token = "hf_6a_bpR62wZdoA4S4oafJFDMoPQD"
         findings = scan_text(token)
         assert any(f["type"] == "hf_token" for f in findings)
 
@@ -179,7 +179,7 @@ class TestScanText:
         assert any(f["type"] == "digitalocean_token" for f in findings)
 
     def test_mailgun_key(self):
-        key = "key-" + "a" * 32
+        key = "key-3ax9Zq2mK7pL4wN8yJ5tF1hG6cD0eW2v"
         findings = scan_text(key)
         assert any(f["type"] == "mailgun_key" for f in findings)
 
@@ -244,6 +244,146 @@ class TestScanText:
         text = f'key = "{s}"'
         findings = scan_text(text)
         assert any(f["type"] == "high_entropy" for f in findings)
+
+    # --- Phase 1: New patterns from PII audit ---
+    # All test values are synthetic — they match the format of real leaked
+    # credentials but are not actual secrets from the audit datasets.
+
+    def test_telegram_bot_token(self):
+        token = "5551234567:AAG-yM_s1P4mgqYJzXM2L4tijDg5ZiCc8_y"
+        findings = scan_text(token)
+        assert any(f["type"] == "telegram_bot_token" for f in findings)
+
+    def test_telegram_bot_token_in_message(self):
+        text = "Bot token is 5559876543:AAJklm_nopqrstuvw5678901234XYZABC ok"
+        findings = scan_text(text)
+        assert any(f["type"] == "telegram_bot_token" for f in findings)
+
+    def test_feishu_app_id(self):
+        text = "App ID: cli_c9f677d83ab12ef0"
+        findings = scan_text(text)
+        assert any(f["type"] == "feishu_app_id" for f in findings)
+
+    def test_zhipuai_key(self):
+        key = "88eb4155dd3c6ff1c9c6aef7e787737e.Rt9tN3rXeE4u7yIx"
+        findings = scan_text(key)
+        assert any(f["type"] == "zhipuai_key" for f in findings)
+
+    def test_zhipuai_key_in_bearer(self):
+        text = "Authorization: Bearer 88eb4155dd3c6ff1c9c6aef7e787737e.Rt9tN3rXeE4u7yIx"
+        findings = scan_text(text)
+        assert any(f["type"] in ("auth_header", "bearer", "zhipuai_key") for f in findings)
+
+    def test_bearer_non_jwt(self):
+        text = "Bearer 88eb4155dd3c6ff1c9c6aef7e787737e.Rt9tN3rXeE4u7yIx"
+        findings = scan_text(text)
+        assert any(f["type"] == "bearer" for f in findings)
+
+    def test_auth_header_generic(self):
+        text = "Authorization: Bearer some_long_api_token_value_here_1234"
+        findings = scan_text(text)
+        assert any(f["type"] == "auth_header" for f in findings)
+
+    def test_jwt_orphan_signature(self):
+        text = "[REDACTED].[REDACTED].yTSPc5ziggPv06dCLVa7ef9cUtwKeLG9wmXTSJ-AxkW"
+        findings = scan_text(text)
+        assert any(f["type"] == "jwt_orphan_sig" for f in findings)
+
+    def test_jwt_orphan_signature_redacted(self):
+        text = "[REDACTED].[REDACTED].yTSPc5ziggPv06dCLVa7ef9cUtwKeLG9wmXTSJ-AxkW"
+        result, count = redact_text(text)
+        assert "yTSPc5zi" not in result
+        assert count >= 1
+
+    def test_mac_address(self):
+        text = "Wi-Fi adapter: 4C-B6-9E-13-2B-E0"
+        findings = scan_text(text)
+        assert any(f["type"] == "mac_address" for f in findings)
+
+    def test_mac_address_colon_format(self):
+        text = "MAC: 4c:b6:9e:13:2b:e0"
+        findings = scan_text(text)
+        assert any(f["type"] == "mac_address" for f in findings)
+
+    def test_windows_hostname(self):
+        text = "Hostname: DESKTOP-8F0GN3CU"
+        findings = scan_text(text)
+        assert any(f["type"] == "windows_hostname" for f in findings)
+
+    def test_jwt_line_wrapped_redacted(self):
+        """JWT split across lines by terminal wrapping should still be caught."""
+        # Simulate a JWT where newline splits payload from signature
+        jwt_part1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkw"
+        jwt_part2 = "IiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        text = f"Token: {jwt_part1}\n{jwt_part2}"
+        result, count = redact_text(text)
+        assert "SflKxwRJSMeKKF2QT4fw" not in result
+        assert count >= 1
+
+    def test_gcloud_key_in_thinking(self):
+        """Google API key should be caught (already existed, verify it works)."""
+        key = "AIzaSyDF-Iy92xjetvUzImO657HFm27nyQrt_GG"
+        findings = scan_text(key)
+        assert any(f["type"] == "gcloud_key" for f in findings)
+
+    # --- Phase 2: Social media profile URLs ---
+
+    def test_linkedin_profile_url(self):
+        text = "See linkedin.com/in/jane-testuser for details"
+        findings = scan_text(text)
+        assert any(f["type"] == "social_profile_url" for f in findings)
+
+    def test_linkedin_posts_url(self):
+        text = "Check linkedin.com/posts/some-user for updates"
+        findings = scan_text(text)
+        assert any(f["type"] == "social_profile_url" for f in findings)
+
+    def test_facebook_profile_url(self):
+        text = "Visit facebook.com/john.doe.123"
+        findings = scan_text(text)
+        assert any(f["type"] == "social_profile_url" for f in findings)
+
+    def test_twitter_profile_url(self):
+        text = "Follow x.com/someuser and twitter.com/otheruser"
+        findings = scan_text(text)
+        assert any(f["type"] == "social_profile_url" for f in findings)
+
+    def test_instagram_profile_url(self):
+        text = "Check instagram.com/photographer_jane"
+        findings = scan_text(text)
+        assert any(f["type"] == "social_profile_url" for f in findings)
+
+    # --- Phase 3: Supabase project URLs ---
+
+    def test_supabase_project_url(self):
+        text = "abcdefghijklmnopqrst.supabase.co"
+        findings = scan_text(text)
+        assert any(f["type"] == "supabase_project" for f in findings)
+
+    def test_supabase_short_not_matched(self):
+        """Short subdomains should not match (must be exactly 20 chars)."""
+        text = "example.supabase.co"
+        findings = scan_text(text)
+        assert not any(f["type"] == "supabase_project" for f in findings)
+
+    # --- Phase 3: High-entropy unquoted strings ---
+
+    def test_high_entropy_unquoted(self):
+        text = "token: mXqf3QWUzPFvxsNdCE5eTjGl"
+        findings = scan_text(text)
+        assert any(f["type"] == "high_entropy_unquoted" for f in findings)
+
+    def test_high_entropy_unquoted_low_entropy_rejected(self):
+        """All-same-case repetitive string should not match."""
+        text = "variable_name_that_is_long_but_lowentropy"
+        findings = scan_text(text)
+        assert not any(f["type"] == "high_entropy_unquoted" for f in findings)
+
+    def test_high_entropy_unquoted_single_char_type_rejected(self):
+        """All uppercase string should not match (no mixed chars)."""
+        text = "AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        findings = scan_text(text)
+        assert not any(f["type"] == "high_entropy_unquoted" for f in findings)
 
 
 # --- Allowlist ---
@@ -400,6 +540,32 @@ class TestRedactCustomStrings:
         # len(target) == 3, uses escaped (no word boundary)
         result, count = redact_custom_strings("fooabc bar abc", ["abc"])
         # With no word boundary for 3-char, should match in "fooabc" as escaped substring
+        assert count >= 1
+
+    # --- Phase 2: Boundaryless matching inside filenames/paths ---
+
+    def test_redact_inside_filename(self):
+        result, count = redact_custom_strings("File: ACMEX_Report.md", ["ACMEX"])
+        assert "ACMEX" not in result
+        assert count >= 1
+
+    def test_redact_inside_url_hashtag(self):
+        result, count = redact_custom_strings(
+            "URL: linkedin.com/posts/user_#teamfoo_activity", ["teamfoo"]
+        )
+        assert "teamfoo" not in result
+        assert count >= 1
+
+    def test_redact_normal_text_still_works(self):
+        """Regression: normal word-boundary matching still works."""
+        result, count = redact_custom_strings("normal text ACMEX here", ["ACMEX"])
+        assert "ACMEX" not in result
+        assert count >= 1
+
+    def test_redact_case_insensitive_in_filename(self):
+        """Boundaryless pass should be case-insensitive."""
+        result, count = redact_custom_strings("file: acmex_report.md", ["ACMEX"])
+        assert "acmex" not in result
         assert count >= 1
 
 

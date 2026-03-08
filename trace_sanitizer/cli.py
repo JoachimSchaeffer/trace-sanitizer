@@ -5,9 +5,8 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
-import urllib.error
-import urllib.request
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,10 +15,9 @@ from typing import Any, Mapping, cast
 from . import __version__
 from .anonymizer import Anonymizer
 from .config import CONFIG_FILE, TraceSanitizerConfig, load_config, save_config
-from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, parse_project_sessions
+from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, discover_sessions, parse_project_sessions
 from .secrets import _has_mixed_char_types, _shannon_entropy, redact_session
 
-SKILL_URL = "https://raw.githubusercontent.com/JoachimSchaeffer/trace-sanitizer/main/docs/SKILL.md"
 REPO_URL = "https://github.com/JoachimSchaeffer/trace-sanitizer"
 
 REQUIRED_REVIEW_ATTESTATIONS: dict[str, str] = {
@@ -47,7 +45,7 @@ CONFIRM_COMMAND_SKIP_FULL_NAME_EXAMPLE = (
 )
 
 EXPORT_REVIEW_STEPS = [
-    "Step 1/2: Export locally: trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
+    "Step 1/2: Export locally: trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
     "Step 2/2: Review/redact, then confirm: trace-sanitizer confirm ...",
 ]
 
@@ -55,7 +53,7 @@ SETUP_STEPS = [
     "Step 1/5: Run prep/list to review project scope: trace-sanitizer prep && trace-sanitizer list",
     "Step 2/5: Explicitly choose source scope: trace-sanitizer config --source <claude|codex|gemini|all>",
     "Step 3/5: Configure exclusions/redactions and confirm projects: trace-sanitizer config ...",
-    "Step 4/5: Export locally: trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
+    "Step 4/5: Export locally: trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
     "Step 5/5: Review and confirm: trace-sanitizer confirm ...",
 ]
 
@@ -206,7 +204,7 @@ def _build_status_next_steps(
         steps.extend([
             "Ask about GitHub/Discord usernames to anonymize and sensitive strings to redact. "
             "Configure: trace-sanitizer config --redact-usernames \"handle1\" and trace-sanitizer config --redact \"string1\"",
-            "When done configuring, export locally: trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
+            "When done configuring, export locally: trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
         ])
         # next_command is null because user input is needed before exporting
         return (steps, None)
@@ -216,7 +214,7 @@ def _build_status_next_steps(
             [
                 "Ask the user for their full name to run an exact-name privacy check against the export. If they decline, you may skip this check with --skip-full-name-scan and include a clear attestation.",
                 "Run PII scan commands and review results with the user.",
-                "Ask the user: 'Are there any company names, internal project names, client names, private URLs, or other people's names in your conversations that you'd want redacted? Any custom domains or internal tools?' Add anything they mention with trace-sanitizer config --redact.",
+                "Ask the user: 'Are there any company names, internal project names, client names, private URLs, or other people's names in your conversations that you'd want redacted? Any custom domains or internal tools? Employer names, account names (Vercel, Supabase), or geographic identifiers?' Add anything they mention with trace-sanitizer config --redact.",
                 "Do a deep manual scan: sample ~20 sessions from the export (beginning, middle, end) and scan for names, private URLs, company names, credentials in conversation text, and anything else that looks sensitive. Report findings to the user.",
                 "If PII found in any of the above, add redactions (trace-sanitizer config --redact) and re-export: trace-sanitizer export",
                 (
@@ -229,9 +227,14 @@ def _build_status_next_steps(
         )
 
     # confirmed
+    export_dir = config.get("last_export", {}).get("export_dir", "~/.trace-sanitizer/exports")
     return (
         [
-            "Done! Export confirmed. Upload your JSONL file at https://traced.run",
+            "Done! Export confirmed. The export folder contains your trajectories and the CDLA-Permissive-2.0 license.",
+            f"The export folder is: {export_dir}",
+            "Verify the folder contains: trajectories.jsonl + LICENSE-CDLA-Permissive-2.0.md",
+            f"Zip the folder: cd {export_dir} && zip -r traced_donation.zip . && echo 'Created traced_donation.zip'",
+            "Upload traced_donation.zip to Google Drive and share it with donate@traced.run",
             "To reconfigure: trace-sanitizer prep then trace-sanitizer config",
         ],
         None,
@@ -297,6 +300,7 @@ def export_to_jsonl(
     include_thinking: bool = True,
     custom_strings: list[str] | None = None,
     include_tool_outputs: bool = False,
+    session_ids: set[str] | None = None,
 ) -> dict:
     """Export selected projects to JSONL. Returns metadata."""
     total = 0
@@ -322,6 +326,7 @@ def export_to_jsonl(
                 include_thinking=include_thinking,
                 source=project.get("source", "claude"),
                 include_tool_outputs=include_tool_outputs,
+                session_ids=session_ids,
             )
             proj_count = 0
             for session in sessions:
@@ -357,7 +362,7 @@ def export_to_jsonl(
 
 
 def update_skill(target: str) -> None:
-    """Download and install the trace-sanitizer skill for a coding agent."""
+    """Install the trace-sanitizer skill for a coding agent from the bundled copy."""
     if target != "claude":
         print(f"Error: unknown target '{target}'. Supported: claude", file=sys.stderr)
         sys.exit(1)
@@ -365,21 +370,12 @@ def update_skill(target: str) -> None:
     dest = Path.cwd() / ".claude" / "skills" / "dataclaw" / "SKILL.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Downloading skill from {SKILL_URL}...")
-    try:
-        with urllib.request.urlopen(SKILL_URL, timeout=15) as resp:
-            content = resp.read().decode()
-    except (OSError, urllib.error.URLError) as e:
-        print(f"Error downloading skill: {e}", file=sys.stderr)
-        # Fall back to bundled copy inside the package
-        bundled = Path(__file__).resolve().parent / "data" / "SKILL.md"
-        if bundled.exists():
-            print(f"Using bundled copy from {bundled}")
-            content = bundled.read_text()
-        else:
-            print("No bundled copy available either.", file=sys.stderr)
-            sys.exit(1)
+    bundled = Path(__file__).resolve().parent / "data" / "SKILL.md"
+    if not bundled.exists():
+        print("Error: bundled SKILL.md not found in package.", file=sys.stderr)
+        sys.exit(1)
 
+    content = bundled.read_text()
     dest.write_text(content)
     print(f"Skill installed to {dest}")
     print(json.dumps({
@@ -414,7 +410,7 @@ def _find_export_file(file_path: Path | None) -> Path:
     if file_path and file_path.exists():
         return file_path
     if file_path is None:
-        for c in [Path("/tmp/trace_sanitizer_export.jsonl"), Path("trace_sanitizer_conversations.jsonl")]:
+        for c in [Path.home() / ".trace-sanitizer" / "exports" / "trajectories.jsonl", Path("trace_sanitizer_conversations.jsonl")]:
             if c.exists():
                 return c
     print(json.dumps({
@@ -422,7 +418,7 @@ def _find_export_file(file_path: Path | None) -> Path:
         "hint": "Run step 1 first to generate a local export file.",
         "blocked_on_step": "Step 1/2",
         "process_steps": EXPORT_REVIEW_STEPS,
-        "next_command": "trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
+        "next_command": "trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
     }, indent=2))
     sys.exit(1)
 
@@ -769,6 +765,18 @@ def confirm(
         }, indent=2))
         sys.exit(1)
 
+    # Auto-add full name and name parts to redact_strings for future exports
+    name_added_to_redact = False
+    if normalized_full_name:
+        existing = set(config.get("redact_strings", []))
+        name_parts = [p for p in normalized_full_name.split() if len(p) >= 3]
+        new_strings = {normalized_full_name} | set(name_parts)
+        to_add = new_strings - existing
+        if to_add:
+            _merge_config_list(config, "redact_strings", sorted(to_add))
+            save_config(config)
+            name_added_to_redact = True
+
     if skip_full_name_scan:
         full_name_scan = {
             "query": None,
@@ -849,12 +857,16 @@ def confirm(
             "context snippets. If any are real secrets, redact with: "
             "trace-sanitizer config --redact \"the_secret\" then re-export."
         )
+    export_dir = str(file_path.resolve().parent)
     next_steps.extend([
         "If any project should be excluded, run: trace-sanitizer config --exclude \"project_name\" and re-export.",
-        f"Export contains {total} sessions ({_format_size(file_size)}). Upload via https://traced.run when ready.",
+        f"Export contains {total} sessions ({_format_size(file_size)}).",
+        f"The export folder ({export_dir}) contains trajectories + CDLA-Permissive-2.0 license.",
+        f"Zip the folder: cd {export_dir} && zip -r traced_donation.zip . && echo 'Created traced_donation.zip'",
+        "Upload traced_donation.zip to Google Drive and share it with donate@traced.run",
     ])
 
-    result = {
+    result: dict[str, Any] = {
         "stage": "confirmed",
         "stage_number": 3,
         "total_stages": 3,
@@ -874,6 +886,11 @@ def confirm(
         "next_command": None,
         "attestations": attestations,
     }
+    if name_added_to_redact:
+        result["warning"] = (
+            "Full name added to redact_strings. Re-export recommended: "
+            "trace-sanitizer export -o " + str(file_path.resolve())
+        )
     print(json.dumps(result, indent=2))
 
 
@@ -995,6 +1012,8 @@ def main() -> None:
     for target in (exp, parser):
         target.add_argument("--output", "-o", type=Path, default=None)
         target.add_argument("--source", choices=SOURCE_CHOICES, default="auto")
+        target.add_argument("--all", action="store_true", dest="all_mode",
+                            help="Export all sessions from all projects (skip interactive selection)")
         target.add_argument("--all-projects", action="store_true")
         target.add_argument("--no-thinking", action="store_true")
         tool_out_group = target.add_mutually_exclusive_group()
@@ -1094,9 +1113,25 @@ def _handle_config(args) -> None:
 
 
 def _run_export(args) -> None:
-    """Run the export flow — discover, anonymize, export locally."""
+    """Run the export flow — discover, anonymize, export locally.
+
+    Two modes:
+    - Interactive (default): auto-detect sources, show project → session menu, export one trace.
+      No config gates required.
+    - Bulk (--all): requires source scope, project confirmation, and tool output config.
+    """
     config = load_config()
+    all_mode = getattr(args, "all_mode", False) or args.all_projects
+    interactive = not all_mode and sys.stdin.isatty()
+
+    # --- Source resolution ---
     source_choice, source_explicit = _resolve_source_choice(args.source, config)
+
+    if interactive and not source_explicit:
+        # Auto-detect all available sources for interactive mode
+        source_choice = "all"
+        source_explicit = True
+
     source_filter = _normalize_source_filter(source_choice)
 
     if not source_explicit:
@@ -1139,42 +1174,47 @@ def _run_export(args) -> None:
         print(f"No {_source_label(source_filter)} sessions found.", file=sys.stderr)
         sys.exit(1)
 
-    if not args.all_projects and not config.get("projects_confirmed", False):
-        excluded = set(config.get("excluded_projects", []))
-        list_command = f"trace-sanitizer list --source {source_choice}"
-        print(json.dumps({
-            "error": "Project selection is not confirmed yet.",
-            "hint": (
-                f"Run `{list_command}`, present the full project list to the user, discuss which projects to exclude, then run "
-                "`trace-sanitizer config --exclude \"p1,p2\"` or `trace-sanitizer config --confirm-projects`."
-            ),
-            "required_action": (
-                "Send the full project/folder list below to the user in a message and get explicit "
-                "confirmation on exclusions before exporting."
-            ),
-            "projects": [
-                {
-                    "name": p["display_name"],
-                    "source": p.get("source", "claude"),
-                    "sessions": p["session_count"],
-                    "size": _format_size(p["total_size_bytes"]),
-                    "excluded": p["display_name"] in excluded,
-                }
-                for p in projects
-            ],
-            "blocked_on_step": "Step 3/5",
-            "process_steps": SETUP_STEPS,
-            "next_command": "trace-sanitizer config --confirm-projects",
-        }, indent=2))
-        sys.exit(1)
+    # --- Bulk mode gates (skipped in interactive mode) ---
+    if not interactive:
+        if not args.all_projects and not config.get("projects_confirmed", False):
+            excluded = set(config.get("excluded_projects", []))
+            list_command = f"trace-sanitizer list --source {source_choice}"
+            print(json.dumps({
+                "error": "Project selection is not confirmed yet.",
+                "hint": (
+                    f"Run `{list_command}`, present the full project list to the user, discuss which projects to exclude, then run "
+                    "`trace-sanitizer config --exclude \"p1,p2\"` or `trace-sanitizer config --confirm-projects`."
+                ),
+                "required_action": (
+                    "Send the full project/folder list below to the user in a message and get explicit "
+                    "confirmation on exclusions before exporting."
+                ),
+                "projects": [
+                    {
+                        "name": p["display_name"],
+                        "source": p.get("source", "claude"),
+                        "sessions": p["session_count"],
+                        "size": _format_size(p["total_size_bytes"]),
+                        "excluded": p["display_name"] in excluded,
+                    }
+                    for p in projects
+                ],
+                "blocked_on_step": "Step 3/5",
+                "process_steps": SETUP_STEPS,
+                "next_command": "trace-sanitizer config --confirm-projects",
+            }, indent=2))
+            sys.exit(1)
 
-    # Resolve include_tool_outputs: CLI flag > config > gate
+    # --- Resolve tool outputs: CLI flag > config > default (off) ---
     if getattr(args, "include_tool_outputs", None):
         include_tool_outputs = True
     elif getattr(args, "no_tool_outputs", None):
         include_tool_outputs = False
     elif config.get("include_tool_outputs") is not None:
         include_tool_outputs = config["include_tool_outputs"]
+    elif interactive:
+        from .menu import confirm_tool_outputs
+        include_tool_outputs = confirm_tool_outputs()
     else:
         print(json.dumps({
             "error": "Tool output inclusion is not configured yet.",
@@ -1203,24 +1243,44 @@ def _run_export(args) -> None:
 
     # Apply exclusions
     excluded = set(config.get("excluded_projects", []))
-    if args.all_projects:
+    if all_mode:
         excluded = set()
 
     included = [p for p in projects if p["display_name"] not in excluded]
     excluded_projects = [p for p in projects if p["display_name"] in excluded]
 
-    if excluded_projects:
-        print(f"\nIncluding {len(included)} projects (excluding {len(excluded_projects)}):")
-    else:
-        print(f"\nIncluding all {len(included)} projects:")
-    for p in included:
-        print(f"  + {p['display_name']} ({p['session_count']} sessions)")
-    for p in excluded_projects:
-        print(f"  - {p['display_name']} (excluded)")
+    if not interactive:
+        if excluded_projects:
+            print(f"\nIncluding {len(included)} projects (excluding {len(excluded_projects)}):")
+        else:
+            print(f"\nIncluding all {len(included)} projects:")
+        for p in included:
+            print(f"  + {p['display_name']} ({p['session_count']} sessions)")
+        for p in excluded_projects:
+            print(f"  - {p['display_name']} (excluded)")
 
     if not included:
         print("\nNo projects to export. Run: trace-sanitizer config --exclude ''")
         sys.exit(1)
+
+    # --- Interactive selection ---
+    session_id_filter: set[str] | None = None
+
+    if interactive:
+        from .menu import pick_project, pick_session
+
+        selected_project = pick_project(included)
+        sessions_meta = discover_sessions(
+            selected_project["dir_name"],
+            source=selected_project.get("source", "claude"),
+        )
+        if not sessions_meta:
+            print(f"\nNo sessions found in {selected_project['display_name']}.")
+            sys.exit(1)
+
+        selected_session = pick_session(sessions_meta, selected_project["display_name"])
+        included = [selected_project]
+        session_id_filter = {selected_session["session_id"]}
 
     # Build anonymizer with extra usernames from config
     extra_usernames = config.get("redact_usernames", [])
@@ -1238,14 +1298,21 @@ def _run_export(args) -> None:
     else:
         print("Tool outputs: excluded")
 
-    # Export
-    output_path = args.output or Path("trace_sanitizer_conversations.jsonl")
+    # Export — resolve output path and ensure parent directory exists
+    output_path = args.output
+    if output_path is None:
+        export_dir = Path.home() / ".trace-sanitizer" / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        output_path = export_dir / "trajectories.jsonl"
+    else:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"\nExporting to {output_path}...")
     meta = export_to_jsonl(
         included, output_path, anonymizer, not args.no_thinking,
         custom_strings=custom_strings,
         include_tool_outputs=include_tool_outputs,
+        session_ids=session_id_filter,
     )
     file_size = output_path.stat().st_size
     print(f"\nExported {meta['sessions']} sessions ({_format_size(file_size)})")
@@ -1255,20 +1322,30 @@ def _run_export(args) -> None:
         print(f"Redacted {meta['redactions']} secrets (API keys, tokens, emails, etc.)")
     print(f"Models: {', '.join(f'{m} ({c})' for m, c in sorted(meta['models'].items(), key=lambda x: -x[1]))}")
 
+    # Copy CDLA-Permissive-2.0 license into export directory
+    license_path = _copy_license_to_export_dir(output_path)
+    if license_path:
+        print(f"License: {license_path.name} (CDLA-Permissive-2.0)")
+
     _print_pii_guidance(output_path)
 
+    export_dir_str = str(output_path.resolve().parent)
     config["last_export"] = {
         "timestamp": meta["exported_at"],
         "sessions": meta["sessions"],
         "models": meta["models"],
         "source": source_choice,
         "path": str(output_path.resolve()),
+        "export_dir": export_dir_str,
         "redactions": meta.get("redactions", 0),
     }
     config["stage"] = "review"
     save_config(config)
 
-    print(f"\nDone! JSONL file: {output_path}")
+    print(f"\nDone! Export folder: {export_dir_str}")
+    print("Contents:")
+    for p in sorted(output_path.resolve().parent.iterdir()):
+        print(f"  {p.name}")
     abs_path = str(output_path.resolve())
     next_steps, next_command = _build_status_next_steps("review", config, None, None)
     json_block = {
@@ -1278,12 +1355,24 @@ def _run_export(args) -> None:
         "sessions": meta["sessions"],
         "source": source_choice,
         "output_file": abs_path,
+        "export_dir": export_dir_str,
         "pii_commands": _build_pii_commands(output_path),
         "next_steps": next_steps,
         "next_command": next_command,
     }
     print("\n---TRACE_SANITIZER_JSON---")
     print(json.dumps(json_block, indent=2))
+
+
+def _copy_license_to_export_dir(output_path: Path) -> Path | None:
+    """Copy the CDLA-Permissive-2.0 license into the export directory."""
+    export_dir = output_path.resolve().parent
+    license_src = Path(__file__).resolve().parent / "data" / "LICENSE-CDLA-Permissive-2.0.md"
+    if not license_src.exists():
+        return None
+    license_dest = export_dir / "LICENSE-CDLA-Permissive-2.0.md"
+    shutil.copy2(license_src, license_dest)
+    return license_dest
 
 
 def _build_pii_commands(output_path: Path) -> list[str]:
@@ -1316,6 +1405,15 @@ def _print_pii_guidance(output_path: Path) -> None:
     print("NEXT: Ask for full name to run an exact-name privacy check, then scan for it:")
     print(f"  grep -i 'THEIR_NAME' {q} | head -10")
     print("  If user declines sharing full name: use trace-sanitizer confirm --skip-full-name-scan with a skip attestation.")
+    print()
+    print("Additional checks (ask the user and grep for these):")
+    print(f"  grep -iE 'company_name|client_name' {q} | head -10   # Employer & client names")
+    print(f"  grep -iE 'linkedin\\.com/in/|facebook\\.com/' {q} | head -5  # Social profiles")
+    print(f"  grep -iE 'resume|portfolio|cv|experience|education|gpa' {q} | head -5  # Resume content")
+    print(f"  grep -iE 'supabase\\.co|vercel\\.app|netlify\\.app' {q} | head -5  # Account/org names in URLs")
+    print(f"  grep -oE '[0-9A-Fa-f]{{2}}(:[0-9A-Fa-f]{{2}}){{5}}' {q} | head -5  # MAC addresses")
+    print(f"  grep -iE 'DESKTOP-[A-Z0-9]{{6,8}}' {q} | head -5  # Windows hostnames")
+    print(f"  grep -iE 'discord_members|member_id|browser.history|browsing.history' {q} | head -5  # Forensics/3rd party data")
     print()
     print("To add custom redactions, then re-export:")
     print("  trace-sanitizer config --redact-usernames 'github_handle,discord_name'")

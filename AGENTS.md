@@ -32,12 +32,11 @@ After `trace-sanitizer export`, follow the `next_steps` in the JSON output. The 
 
 1. **Ask the user their full name** — then grep the export for it
 2. **Run the pii_commands** from the JSON output and review results with the user
-3. **Ask the user what else to look for** — company names, client names, private URLs, other people's names, custom domains
-4. **Deep manual scan** — sample ~20 sessions (beginning, middle, end) and look for anything sensitive the regex missed
+3. **Ask the user what else to look for** — company names, client names, employer names, private URLs, other people's names, custom domains, account/org names (Vercel teams, Supabase projects), geographic identifiers, social profiles (LinkedIn, GitHub linked to real names), and any hardware identifiers
+4. **Deep manual scan** — sample ~20 sessions (beginning, middle, end) and look for anything sensitive the regex missed. Check for resume/CV content, browser history, Discord data, and system forensics that could defeat anonymization
 5. **Fix and re-export** if anything found: `trace-sanitizer config --redact "string"` then `trace-sanitizer export`
 6. **Run `trace-sanitizer confirm` with text attestations** — pass `--full-name`, `--attest-full-name`, `--attest-sensitive`, and `--attest-manual-scan`. It runs PII scan, verifies attestations, shows project breakdown, and confirms the export.
-7. **Upload via web** — upload the JSONL file at https://traced.run
-   After upload, visit https://traced.run/datasets to publish individual trajectories.
+7. **Donate** — the export folder contains trajectories.jsonl + CDLA-Permissive-2.0 license. Zip the folder, upload to Google Drive, and share with donate@traced.run
 
 ## Commands Reference
 

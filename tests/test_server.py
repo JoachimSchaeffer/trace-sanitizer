@@ -57,7 +57,7 @@ class TestSanitizeSecretRedaction:
         assert data["redaction_count"] >= 1
 
     def test_openai_key_redacted(self):
-        key = "sk-" + "a" * 48
+        key = "sk-proj-Ab3Cd5Ef7Gh9Ij1Kl3Mn5Op7Qr9St1Uv3Wx5Yz7A"
         text = f"OpenAI key: {key}"
         response = client.post("/sanitize", json={"content": text})
         data = response.json()
