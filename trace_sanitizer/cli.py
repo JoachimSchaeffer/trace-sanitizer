@@ -1,4 +1,4 @@
-"""CLI for safety-dataclaw — sanitize and upload AI agent trajectories to traced.run"""
+"""CLI for trace-sanitizer — sanitize AI agent trajectories for traced.run"""
 
 import argparse
 import json
@@ -9,19 +9,18 @@ import sys
 import urllib.error
 import urllib.request
 
-import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, cast
 
 from . import __version__
 from .anonymizer import Anonymizer
-from .config import CONFIG_FILE, SafetyDataclawConfig, load_config, save_config
+from .config import CONFIG_FILE, TraceSanitizerConfig, load_config, save_config
 from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, parse_project_sessions
 from .secrets import _has_mixed_char_types, _shannon_entropy, redact_session
 
-SKILL_URL = "https://raw.githubusercontent.com/JoachimSchaeffer/safety-dataclaw/main/docs/SKILL.md"
-REPO_URL = "https://github.com/JoachimSchaeffer/safety-dataclaw"
+SKILL_URL = "https://raw.githubusercontent.com/JoachimSchaeffer/trace-sanitizer/main/docs/SKILL.md"
+REPO_URL = "https://github.com/JoachimSchaeffer/trace-sanitizer"
 
 REQUIRED_REVIEW_ATTESTATIONS: dict[str, str] = {
     "asked_full_name": "I asked the user for their full name and scanned for it.",
@@ -32,7 +31,7 @@ MIN_ATTESTATION_CHARS = 24
 MIN_MANUAL_SCAN_SESSIONS = 20
 
 CONFIRM_COMMAND_EXAMPLE = (
-    "safety-dataclaw confirm "
+    "trace-sanitizer confirm "
     "--full-name \"THEIR FULL NAME\" "
     "--attest-full-name \"Asked for full name and scanned export for THEIR FULL NAME.\" "
     "--attest-sensitive \"Asked about company/client/internal names and private URLs; user response recorded and redactions updated if needed.\" "
@@ -40,26 +39,24 @@ CONFIRM_COMMAND_EXAMPLE = (
 )
 
 CONFIRM_COMMAND_SKIP_FULL_NAME_EXAMPLE = (
-    "safety-dataclaw confirm "
+    "trace-sanitizer confirm "
     "--skip-full-name-scan "
     "--attest-full-name \"User declined to share full name; skipped exact-name scan.\" "
     "--attest-sensitive \"Asked about company/client/internal names and private URLs; user response recorded and redactions updated if needed.\" "
     "--attest-manual-scan \"Manually scanned 20 sessions across beginning/middle/end and reviewed findings with the user.\""
 )
 
-EXPORT_REVIEW_UPLOAD_STEPS = [
-    "Step 1/3: Export locally: safety-dataclaw export --no-push --output /tmp/safety_dataclaw_export.jsonl",
-    "Step 2/3: Review/redact, then confirm: safety-dataclaw confirm ...",
-    "Step 3/3: Upload to TRACED: safety-dataclaw upload",
+EXPORT_REVIEW_STEPS = [
+    "Step 1/2: Export locally: trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
+    "Step 2/2: Review/redact, then confirm: trace-sanitizer confirm ...",
 ]
 
-SETUP_TO_UPLOAD_STEPS = [
-    "Step 1/6: Run prep/list to review project scope: safety-dataclaw prep && safety-dataclaw list",
-    "Step 2/6: Explicitly choose source scope: safety-dataclaw config --source <claude|codex|gemini|all>",
-    "Step 3/6: Configure exclusions/redactions and confirm projects: safety-dataclaw config ...",
-    "Step 4/6: Export locally only: safety-dataclaw export --no-push --output /tmp/safety_dataclaw_export.jsonl",
-    "Step 5/6: Review and confirm: safety-dataclaw confirm ...",
-    "Step 6/6: Upload to TRACED: safety-dataclaw upload",
+SETUP_STEPS = [
+    "Step 1/5: Run prep/list to review project scope: trace-sanitizer prep && trace-sanitizer list",
+    "Step 2/5: Explicitly choose source scope: trace-sanitizer config --source <claude|codex|gemini|all>",
+    "Step 3/5: Configure exclusions/redactions and confirm projects: trace-sanitizer config ...",
+    "Step 4/5: Export locally: trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
+    "Step 5/5: Review and confirm: trace-sanitizer confirm ...",
 ]
 
 EXPLICIT_SOURCE_CHOICES = {"claude", "codex", "gemini", "opencode", "all", "both"}
@@ -78,8 +75,6 @@ def _mask_config_for_display(config: Mapping[str, Any]) -> dict[str, Any]:
     out = dict(config)
     if out.get("redact_strings"):
         out["redact_strings"] = [_mask_secret(s) for s in out["redact_strings"]]
-    if out.get("api_key"):
-        out["api_key"] = _mask_secret(out["api_key"])
     return out
 
 
@@ -108,7 +103,7 @@ def _is_explicit_source_choice(source_filter: str | None) -> bool:
 
 def _resolve_source_choice(
     requested_source: str,
-    config: SafetyDataclawConfig | None = None,
+    config: TraceSanitizerConfig | None = None,
 ) -> tuple[str, bool]:
     """Resolve source choice from CLI + config.
 
@@ -164,58 +159,39 @@ def _format_token_count(count: int) -> str:
     return str(count)
 
 
-def _compute_stage(config: SafetyDataclawConfig) -> tuple[str, int, str | None]:
-    """Return (stage_name, stage_number, username).
-
-    Uses traced.run API key for auth.
-    """
-    api_key = config.get("api_key")
-    if not api_key:
-        return ("auth", 1, None)
-    # We don't have a username from the API key alone; it's just authenticated
+def _compute_stage(config: TraceSanitizerConfig) -> tuple[str, int, str | None]:
+    """Return (stage_name, stage_number, username)."""
     saved = config.get("stage")
     last_export = config.get("last_export")
-    if saved == "done" and last_export:
-        return ("done", 4, None)
     if saved == "confirmed" and last_export:
         return ("confirmed", 3, None)
     if saved == "review" and last_export:
-        return ("review", 3, None)
-    return ("configure", 2, None)
+        return ("review", 2, None)
+    return ("configure", 1, None)
 
 
 def _build_status_next_steps(
-    stage: str, config: SafetyDataclawConfig, username: str | None, repo_id: str | None,
+    stage: str, config: TraceSanitizerConfig, username: str | None, repo_id: str | None,
 ) -> tuple[list[str], str | None]:
     """Return (next_steps, next_command) for the given stage."""
-    if stage == "auth":
-        return (
-            [
-                "Get an API key from https://traced.run/settings",
-                "Run: safety-dataclaw auth <your-api-key>",
-                "Run: safety-dataclaw prep (to review projects and get next steps)",
-            ],
-            None,
-        )
-
     if stage == "configure":
         projects_confirmed = config.get("projects_confirmed", False)
         configured_source = config.get("source")
         source_confirmed = _is_explicit_source_choice(configured_source)
         list_command = (
-            f"safety-dataclaw list --source {configured_source}" if source_confirmed else "safety-dataclaw list"
+            f"trace-sanitizer list --source {configured_source}" if source_confirmed else "trace-sanitizer list"
         )
         steps = []
         if not source_confirmed:
             steps.append(
                 "Ask the user to explicitly choose export source scope: Claude Code, Codex, Gemini, or all. "
-                "Then set it: safety-dataclaw config --source <claude|codex|gemini|all>. "
+                "Then set it: trace-sanitizer config --source <claude|codex|gemini|all>. "
                 "Do not run export until source scope is explicitly confirmed."
             )
         else:
             steps.append(
                 f"Source scope is currently set to '{configured_source}'. "
-                "If the user wants a different scope, run: safety-dataclaw config --source <claude|codex|gemini|all>."
+                "If the user wants a different scope, run: trace-sanitizer config --source <claude|codex|gemini|all>."
             )
         if not projects_confirmed:
             steps.append(
@@ -223,14 +199,14 @@ def _build_status_next_steps(
                 "(name, source, sessions, size, excluded), and ask which to EXCLUDE."
             )
             steps.append(
-                "Configure project scope: safety-dataclaw config --exclude \"project1,project2\" "
-                "or safety-dataclaw config --confirm-projects (to include all listed projects). "
+                "Configure project scope: trace-sanitizer config --exclude \"project1,project2\" "
+                "or trace-sanitizer config --confirm-projects (to include all listed projects). "
                 "Do not run export until this folder review is confirmed."
             )
         steps.extend([
             "Ask about GitHub/Discord usernames to anonymize and sensitive strings to redact. "
-            "Configure: safety-dataclaw config --redact-usernames \"handle1\" and safety-dataclaw config --redact \"string1\"",
-            "When done configuring, export locally: safety-dataclaw export --no-push --output /tmp/safety_dataclaw_export.jsonl",
+            "Configure: trace-sanitizer config --redact-usernames \"handle1\" and trace-sanitizer config --redact \"string1\"",
+            "When done configuring, export locally: trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
         ])
         # next_command is null because user input is needed before exporting
         return (steps, None)
@@ -240,33 +216,23 @@ def _build_status_next_steps(
             [
                 "Ask the user for their full name to run an exact-name privacy check against the export. If they decline, you may skip this check with --skip-full-name-scan and include a clear attestation.",
                 "Run PII scan commands and review results with the user.",
-                "Ask the user: 'Are there any company names, internal project names, client names, private URLs, or other people's names in your conversations that you'd want redacted? Any custom domains or internal tools?' Add anything they mention with safety-dataclaw config --redact.",
+                "Ask the user: 'Are there any company names, internal project names, client names, private URLs, or other people's names in your conversations that you'd want redacted? Any custom domains or internal tools?' Add anything they mention with trace-sanitizer config --redact.",
                 "Do a deep manual scan: sample ~20 sessions from the export (beginning, middle, end) and scan for names, private URLs, company names, credentials in conversation text, and anything else that looks sensitive. Report findings to the user.",
-                "If PII found in any of the above, add redactions (safety-dataclaw config --redact) and re-export: safety-dataclaw export --no-push",
+                "If PII found in any of the above, add redactions (trace-sanitizer config --redact) and re-export: trace-sanitizer export",
                 (
                     "Run: "
                     + CONFIRM_COMMAND_EXAMPLE
-                    + " — scans for PII, shows project breakdown, and unlocks uploading."
+                    + " — scans for PII, shows project breakdown, and confirms the export."
                 ),
-                "Do NOT upload until the user explicitly confirms. Once confirmed, upload: safety-dataclaw upload",
             ],
-            "safety-dataclaw confirm",
+            "trace-sanitizer confirm",
         )
 
-    if stage == "confirmed":
-        return (
-            [
-                "User has reviewed the export. Ask: 'Ready to upload to TRACED?' and upload: safety-dataclaw upload",
-            ],
-            "safety-dataclaw upload",
-        )
-
-    # done
-    traced_url = config.get("traced_url", "https://traced.run")
+    # confirmed
     return (
         [
-            f"Done! Data uploaded to TRACED. View your datasets at {traced_url}/datasets",
-            "To reconfigure: safety-dataclaw prep then safety-dataclaw config",
+            "Done! Export confirmed. Upload your JSONL file at https://traced.run",
+            "To reconfigure: trace-sanitizer prep then trace-sanitizer config",
         ],
         None,
     )
@@ -290,7 +256,7 @@ def list_projects(source_filter: str = "auto") -> None:
     ))
 
 
-def _merge_config_list(config: SafetyDataclawConfig, key: str, new_values: list[str]) -> None:
+def _merge_config_list(config: TraceSanitizerConfig, key: str, new_values: list[str]) -> None:
     """Append new_values to a config list (deduplicated, sorted)."""
     existing = set(config.get(key, []))
     existing.update(new_values)
@@ -391,7 +357,7 @@ def export_to_jsonl(
 
 
 def update_skill(target: str) -> None:
-    """Download and install the safety-dataclaw skill for a coding agent."""
+    """Download and install the trace-sanitizer skill for a coding agent."""
     if target != "claude":
         print(f"Error: unknown target '{target}'. Supported: claude", file=sys.stderr)
         sys.exit(1)
@@ -418,8 +384,8 @@ def update_skill(target: str) -> None:
     print(f"Skill installed to {dest}")
     print(json.dumps({
         "installed": str(dest),
-        "next_steps": ["Run: safety-dataclaw prep"],
-        "next_command": "safety-dataclaw prep",
+        "next_steps": ["Run: trace-sanitizer prep"],
+        "next_command": "trace-sanitizer prep",
     }, indent=2))
 
 
@@ -428,16 +394,12 @@ def status() -> None:
     config = load_config()
     stage, stage_number, _username = _compute_stage(config)
 
-    traced_url = config.get("traced_url", "https://traced.run")
-
     next_steps, next_command = _build_status_next_steps(stage, config, None, None)
 
     result = {
         "stage": stage,
         "stage_number": stage_number,
-        "total_stages": 4,
-        "authenticated": config.get("api_key") is not None,
-        "traced_url": traced_url,
+        "total_stages": 3,
         "source": config.get("source"),
         "projects_confirmed": config.get("projects_confirmed", False),
         "last_export": config.get("last_export"),
@@ -452,15 +414,15 @@ def _find_export_file(file_path: Path | None) -> Path:
     if file_path and file_path.exists():
         return file_path
     if file_path is None:
-        for c in [Path("/tmp/safety_dataclaw_export.jsonl"), Path("safety_dataclaw_conversations.jsonl")]:
+        for c in [Path("/tmp/trace_sanitizer_export.jsonl"), Path("trace_sanitizer_conversations.jsonl")]:
             if c.exists():
                 return c
     print(json.dumps({
         "error": "No export file found.",
         "hint": "Run step 1 first to generate a local export file.",
-        "blocked_on_step": "Step 1/3",
-        "process_steps": EXPORT_REVIEW_UPLOAD_STEPS,
-        "next_command": "safety-dataclaw export --no-push --output /tmp/safety_dataclaw_export.jsonl",
+        "blocked_on_step": "Step 1/2",
+        "process_steps": EXPORT_REVIEW_STEPS,
+        "next_command": "trace-sanitizer export --output /tmp/trace_sanitizer_export.jsonl",
     }, indent=2))
     sys.exit(1)
 
@@ -757,7 +719,7 @@ def confirm(
     attest_manual_scan: str | None = None,
     skip_full_name_scan: bool = False,
 ) -> None:
-    """Scan export for PII, summarize projects, and unlock uploading. JSON output."""
+    """Scan export for PII, summarize projects, and confirm. JSON output."""
     config = load_config()
     last_export = config.get("last_export", {})
     file_path = _find_export_file(file_path)
@@ -770,8 +732,8 @@ def confirm(
                 "Provide --full-name for an exact-name scan, or use --skip-full-name-scan "
                 "if the user declines sharing their name."
             ),
-            "blocked_on_step": "Step 2/3",
-            "process_steps": EXPORT_REVIEW_UPLOAD_STEPS,
+            "blocked_on_step": "Step 2/2",
+            "process_steps": EXPORT_REVIEW_STEPS,
             "next_command": CONFIRM_COMMAND_EXAMPLE,
         }, indent=2))
         sys.exit(1)
@@ -783,8 +745,8 @@ def confirm(
                 "to run an exact-name privacy check. If the user declines, rerun with "
                 "--skip-full-name-scan and a full-name attestation describing the skip."
             ),
-            "blocked_on_step": "Step 2/3",
-            "process_steps": EXPORT_REVIEW_UPLOAD_STEPS,
+            "blocked_on_step": "Step 2/2",
+            "process_steps": EXPORT_REVIEW_STEPS,
             "next_command": CONFIRM_COMMAND_SKIP_FULL_NAME_EXAMPLE,
         }, indent=2))
         sys.exit(1)
@@ -801,8 +763,8 @@ def confirm(
             "error": "Missing or invalid review attestations.",
             "attestation_errors": attestation_errors,
             "required_attestations": REQUIRED_REVIEW_ATTESTATIONS,
-            "blocked_on_step": "Step 2/3",
-            "process_steps": EXPORT_REVIEW_UPLOAD_STEPS,
+            "blocked_on_step": "Step 2/2",
+            "process_steps": EXPORT_REVIEW_STEPS,
             "next_command": CONFIRM_COMMAND_EXAMPLE,
         }, indent=2))
         sys.exit(1)
@@ -872,12 +834,12 @@ def confirm(
         )
     elif full_name_scan.get("match_count", 0):
         next_steps.append(
-            "Full-name scan found matches. Review them with the user and redact if needed, then re-export with --no-push."
+            "Full-name scan found matches. Review them with the user and redact if needed, then re-export."
         )
     if pii_findings:
         next_steps.append(
             "PII findings detected — review each one with the user. "
-            "If real: safety-dataclaw config --redact \"string\" then re-export with --no-push. "
+            "If real: trace-sanitizer config --redact \"string\" then re-export. "
             "False positives can be ignored."
         )
     if "high_entropy_strings" in pii_findings:
@@ -885,19 +847,17 @@ def confirm(
             "High-entropy strings detected — these may be leaked secrets (API keys, tokens, "
             "passwords) that escaped automatic redaction. Review each one using the provided "
             "context snippets. If any are real secrets, redact with: "
-            "safety-dataclaw config --redact \"the_secret\" then re-export with --no-push."
+            "trace-sanitizer config --redact \"the_secret\" then re-export."
         )
     next_steps.extend([
-        "If any project should be excluded, run: safety-dataclaw config --exclude \"project_name\" and re-export with --no-push.",
-        f"This will upload {total} sessions ({_format_size(file_size)}) to TRACED."
-        + " Ask the user: 'Are you ready to proceed?'",
-        "Once confirmed, upload: safety-dataclaw upload",
+        "If any project should be excluded, run: trace-sanitizer config --exclude \"project_name\" and re-export.",
+        f"Export contains {total} sessions ({_format_size(file_size)}). Upload via https://traced.run when ready.",
     ])
 
     result = {
         "stage": "confirmed",
         "stage_number": 3,
-        "total_stages": 4,
+        "total_stages": 3,
         "file": str(file_path.resolve()),
         "file_size": _format_size(file_size),
         "total_sessions": total,
@@ -911,122 +871,14 @@ def confirm(
         "manual_scan_sessions": manual_scan_sessions,
         "last_export_timestamp": last_export.get("timestamp"),
         "next_steps": next_steps,
-        "next_command": "safety-dataclaw upload",
+        "next_command": None,
         "attestations": attestations,
     }
     print(json.dumps(result, indent=2))
 
 
-def cmd_auth(args) -> None:
-    """Authenticate with TRACED API."""
-    config = load_config()
-    key = args.key or os.environ.get("SAFETY_DATACLAW_API_KEY")
-    if not key:
-        print(json.dumps({"error": "API key required. Pass as argument or set SAFETY_DATACLAW_API_KEY env var."}))
-        return
-
-    # Validate key format
-    if not key.startswith("sdcl_"):
-        print(json.dumps({"error": "Invalid key format. Keys start with 'sdcl_'"}))
-        return
-
-    # Verify against TRACED API
-    from .traced_api import TracedApiError, TracedClient
-
-    traced_url = config.get("traced_url", "https://traced.run")
-    client = TracedClient(api_key=key, base_url=traced_url)
-    try:
-        result = client.verify()
-        config["api_key"] = key
-        config["stage"] = "configure"
-        save_config(config)
-        print(json.dumps({
-            "status": "authenticated",
-            "user": result.get("user", {}),
-            "next_steps": [
-                "Run: safety-dataclaw prep --source all",
-            ],
-        }))
-    except TracedApiError as e:
-        print(json.dumps({"error": str(e)}))
-    except requests.RequestException as e:
-        print(json.dumps({"error": f"Connection failed: {type(e).__name__}"}))
-
-
-def cmd_upload(args) -> None:
-    """Upload exported data to TRACED."""
-    config = load_config()
-    api_key = config.get("api_key")
-    if not api_key:
-        print(json.dumps({
-            "error": "Not authenticated. Run: safety-dataclaw auth <your-api-key>",
-            "next_steps": ["Get an API key at https://traced.run/settings"],
-        }))
-        return
-
-    # Find export file
-    export_file = args.file
-    if not export_file:
-        last_export = config.get("last_export", {})
-        export_file = last_export.get("path")
-        if not export_file:
-            # Try default locations
-            for candidate in [Path("/tmp/safety_dataclaw_export.jsonl"), Path("safety_dataclaw_conversations.jsonl")]:
-                if candidate.exists():
-                    export_file = str(candidate)
-                    break
-
-    if not export_file or not Path(export_file).exists():
-        print(json.dumps({"error": "No export file found. Run: safety-dataclaw export --no-push"}))
-        return
-
-    # Read and parse JSONL
-    sessions = []
-    with open(export_file) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    sessions.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
-    if not sessions:
-        print(json.dumps({"error": "No valid sessions found in export file"}))
-        return
-
-    # Upload to TRACED
-    from .traced_api import TracedApiError, TracedClient
-
-    traced_url = config.get("traced_url", "https://traced.run")
-    client = TracedClient(api_key=api_key, base_url=traced_url)
-
-    try:
-        result = client.upload(
-            sessions=sessions,
-            source=config.get("source", "all"),
-            metadata={
-                "safety_dataclaw_version": __version__,
-                "redactions": config.get("last_export", {}).get("redactions", 0),
-            },
-        )
-        print(json.dumps({
-            "status": "uploaded",
-            "trajectory_ids": result.get("trajectory_ids", []),
-            "count": len(result.get("trajectory_ids", [])),
-            "next_steps": [
-                f"View your datasets at {traced_url}/datasets",
-                "Select trajectories to publish from your dataset library.",
-            ],
-        }))
-    except TracedApiError as e:
-        print(json.dumps({"error": str(e)}))
-    except requests.RequestException as e:
-        print(json.dumps({"error": f"Upload failed: {type(e).__name__}"}))
-
-
 def prep(source_filter: str = "auto") -> None:
-    """Data prep — discover projects, detect auth, output JSON.
+    """Data prep — discover projects, output JSON.
 
     Designed to be called by an agent which handles the interactive parts.
     Outputs pure JSON to stdout so agents can parse it directly.
@@ -1059,7 +911,7 @@ def prep(source_filter: str = "auto") -> None:
     stage, stage_number, _username = _compute_stage(config)
 
     # Build contextual next_steps
-    stage_config = cast(SafetyDataclawConfig, dict(config))
+    stage_config = cast(TraceSanitizerConfig, dict(config))
     if source_explicit:
         stage_config["source"] = resolved_source_choice
     next_steps, next_command = _build_status_next_steps(stage, stage_config, None, None)
@@ -1068,18 +920,14 @@ def prep(source_filter: str = "auto") -> None:
     config["stage"] = stage
     save_config(config)
 
-    traced_url = config.get("traced_url", "https://traced.run")
-
     result = {
         "stage": stage,
         "stage_number": stage_number,
-        "total_stages": 4,
+        "total_stages": 3,
         "next_command": next_command,
         "requested_source_filter": source_filter,
         "source_filter": resolved_source_choice,
         "source_selection_confirmed": source_explicit,
-        "authenticated": config.get("api_key") is not None,
-        "traced_url": traced_url,
         "projects": [
             {
                 "name": p["display_name"],
@@ -1099,23 +947,13 @@ def prep(source_filter: str = "auto") -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="safety-dataclaw — sanitize and upload AI agent trajectories to traced.run")
+    parser = argparse.ArgumentParser(description="trace-sanitizer — sanitize AI agent trajectories for traced.run")
     sub = parser.add_subparsers(dest="command")
 
-    # auth subcommand
-    auth_parser = sub.add_parser("auth", help="Authenticate with TRACED API")
-    auth_parser.add_argument("key", nargs="?", type=str, default=None,
-                             help="Your TRACED API key (starts with sdcl_). "
-                                  "Also accepts SAFETY_DATACLAW_API_KEY env var.")
-
-    # upload subcommand
-    upload_parser = sub.add_parser("upload", help="Upload exported data to TRACED")
-    upload_parser.add_argument("--file", "-f", type=str, default=None, help="Path to export JSONL file")
-
-    prep_parser = sub.add_parser("prep", help="Data prep — discover projects, detect auth, output JSON")
+    prep_parser = sub.add_parser("prep", help="Data prep — discover projects, output JSON")
     prep_parser.add_argument("--source", choices=SOURCE_CHOICES, default="auto")
     sub.add_parser("status", help="Show current stage and next steps (JSON)")
-    cf = sub.add_parser("confirm", help="Scan for PII, summarize export, and unlock uploading (JSON)")
+    cf = sub.add_parser("confirm", help="Scan for PII, summarize export, and confirm (JSON)")
     cf.add_argument("--file", "-f", type=Path, default=None, help="Path to export JSONL file")
     cf.add_argument("--full-name", type=str, default=None,
                     help="User's full name to scan for in the export file (exact-name privacy check).")
@@ -1134,7 +972,7 @@ def main() -> None:
     list_parser = sub.add_parser("list", help="List all projects")
     list_parser.add_argument("--source", choices=SOURCE_CHOICES, default="auto")
 
-    us = sub.add_parser("update-skill", help="Install/update the safety-dataclaw skill for a coding agent")
+    us = sub.add_parser("update-skill", help="Install/update the trace-sanitizer skill for a coding agent")
     us.add_argument("target", choices=["claude"], help="Agent to install skill for")
 
     cfg = sub.add_parser("config", help="View or set config")
@@ -1154,13 +992,11 @@ def main() -> None:
                                    help="Exclude tool outputs from export (default)")
 
     exp = sub.add_parser("export", help="Export sessions to JSONL")
-    # Export flags on both the subcommand and root parser so `safety-dataclaw --no-push` works
     for target in (exp, parser):
         target.add_argument("--output", "-o", type=Path, default=None)
         target.add_argument("--source", choices=SOURCE_CHOICES, default="auto")
         target.add_argument("--all-projects", action="store_true")
         target.add_argument("--no-thinking", action="store_true")
-        target.add_argument("--no-push", action="store_true")
         tool_out_group = target.add_mutually_exclusive_group()
         tool_out_group.add_argument("--include-tool-outputs", action="store_true", default=None,
                                     help="Include tool outputs in export")
@@ -1169,14 +1005,6 @@ def main() -> None:
 
     args = parser.parse_args()
     command = args.command or "export"
-
-    if command == "auth":
-        cmd_auth(args)
-        return
-
-    if command == "upload":
-        cmd_upload(args)
-        return
 
     if command == "prep":
         prep(source_filter=args.source)
@@ -1198,8 +1026,8 @@ def main() -> None:
                 "hint": (
                     "Use text attestations instead so the command can validate what was reviewed."
                 ),
-                "blocked_on_step": "Step 2/3",
-                "process_steps": EXPORT_REVIEW_UPLOAD_STEPS,
+                "blocked_on_step": "Step 2/2",
+                "process_steps": EXPORT_REVIEW_STEPS,
                 "next_command": CONFIRM_COMMAND_EXAMPLE,
             }, indent=2))
             sys.exit(1)
@@ -1280,30 +1108,18 @@ def _run_export(args) -> None:
             ),
             "required_action": (
                 "Ask the user whether to export Claude Code, Codex, Gemini, or all. "
-                "Then run `safety-dataclaw config --source <claude|codex|gemini|all>` "
+                "Then run `trace-sanitizer config --source <claude|codex|gemini|all>` "
                 "or pass `--source <claude|codex|gemini|all>` on the export command."
             ),
             "allowed_sources": sorted(EXPLICIT_SOURCE_CHOICES),
-            "blocked_on_step": "Step 2/6",
-            "process_steps": SETUP_TO_UPLOAD_STEPS,
-            "next_command": "safety-dataclaw config --source all",
+            "blocked_on_step": "Step 2/5",
+            "process_steps": SETUP_STEPS,
+            "next_command": "trace-sanitizer config --source all",
         }, indent=2))
         sys.exit(1)
 
-    # Gate: require `safety-dataclaw confirm` before uploading (if not --no-push)
-    if not args.no_push:
-        if config.get("stage") != "confirmed":
-            print(json.dumps({
-                "error": "You must run `safety-dataclaw confirm` before uploading.",
-                "hint": "Export first with --no-push, review the data, then run `safety-dataclaw confirm`.",
-                "blocked_on_step": "Step 2/3",
-                "process_steps": EXPORT_REVIEW_UPLOAD_STEPS,
-                "next_command": "safety-dataclaw confirm",
-            }, indent=2))
-            sys.exit(1)
-
     print("=" * 50)
-    print("  safety-dataclaw — Agent Trajectory Exporter")
+    print("  trace-sanitizer — Agent Trajectory Exporter")
     print("=" * 50)
 
     if not _has_session_sources(source_filter):
@@ -1325,12 +1141,12 @@ def _run_export(args) -> None:
 
     if not args.all_projects and not config.get("projects_confirmed", False):
         excluded = set(config.get("excluded_projects", []))
-        list_command = f"safety-dataclaw list --source {source_choice}"
+        list_command = f"trace-sanitizer list --source {source_choice}"
         print(json.dumps({
             "error": "Project selection is not confirmed yet.",
             "hint": (
                 f"Run `{list_command}`, present the full project list to the user, discuss which projects to exclude, then run "
-                "`safety-dataclaw config --exclude \"p1,p2\"` or `safety-dataclaw config --confirm-projects`."
+                "`trace-sanitizer config --exclude \"p1,p2\"` or `trace-sanitizer config --confirm-projects`."
             ),
             "required_action": (
                 "Send the full project/folder list below to the user in a message and get explicit "
@@ -1346,9 +1162,9 @@ def _run_export(args) -> None:
                 }
                 for p in projects
             ],
-            "blocked_on_step": "Step 3/6",
-            "process_steps": SETUP_TO_UPLOAD_STEPS,
-            "next_command": "safety-dataclaw config --confirm-projects",
+            "blocked_on_step": "Step 3/5",
+            "process_steps": SETUP_STEPS,
+            "next_command": "trace-sanitizer config --confirm-projects",
         }, indent=2))
         sys.exit(1)
 
@@ -1366,16 +1182,16 @@ def _run_export(args) -> None:
                 "Tool outputs (file contents, command stdout, grep results, etc.) are stripped by default. "
                 "They are valuable for trajectory analysis but significantly increase export size. "
                 "Ask the user whether to include them, then run "
-                "`safety-dataclaw config --include-tool-outputs` or `--no-tool-outputs`."
+                "`trace-sanitizer config --include-tool-outputs` or `--no-tool-outputs`."
             ),
             "required_action": (
                 "Ask the user: 'Should tool outputs (file contents, bash stdout, grep results) "
                 "be included in the export? This increases file size significantly but provides "
                 "richer trajectory data. Secrets will still be redacted.'"
             ),
-            "blocked_on_step": "Step 4/6",
-            "process_steps": SETUP_TO_UPLOAD_STEPS,
-            "next_command": "safety-dataclaw config --no-tool-outputs",
+            "blocked_on_step": "Step 4/5",
+            "process_steps": SETUP_STEPS,
+            "next_command": "trace-sanitizer config --no-tool-outputs",
         }, indent=2))
         sys.exit(1)
 
@@ -1403,7 +1219,7 @@ def _run_export(args) -> None:
         print(f"  - {p['display_name']} (excluded)")
 
     if not included:
-        print("\nNo projects to export. Run: safety-dataclaw config --exclude ''")
+        print("\nNo projects to export. Run: trace-sanitizer config --exclude ''")
         sys.exit(1)
 
     # Build anonymizer with extra usernames from config
@@ -1423,7 +1239,7 @@ def _run_export(args) -> None:
         print("Tool outputs: excluded")
 
     # Export
-    output_path = args.output or Path("safety_dataclaw_conversations.jsonl")
+    output_path = args.output or Path("trace_sanitizer_conversations.jsonl")
 
     print(f"\nExporting to {output_path}...")
     meta = export_to_jsonl(
@@ -1449,32 +1265,25 @@ def _run_export(args) -> None:
         "path": str(output_path.resolve()),
         "redactions": meta.get("redactions", 0),
     }
-    if args.no_push:
-        config["stage"] = "review"
+    config["stage"] = "review"
     save_config(config)
 
-    if args.no_push:
-        print(f"\nDone! JSONL file: {output_path}")
-        abs_path = str(output_path.resolve())
-        next_steps, next_command = _build_status_next_steps("review", config, None, None)
-        json_block = {
-            "stage": "review",
-            "stage_number": 3,
-            "total_stages": 4,
-            "sessions": meta["sessions"],
-            "source": source_choice,
-            "output_file": abs_path,
-            "pii_commands": _build_pii_commands(output_path),
-            "next_steps": next_steps,
-            "next_command": next_command,
-        }
-        print("\n---SAFETY_DATACLAW_JSON---")
-        print(json.dumps(json_block, indent=2))
-        return
-
-    # If not --no-push, we still just export locally. Upload is a separate command now.
     print(f"\nDone! JSONL file: {output_path}")
-    print("To upload to TRACED, run: safety-dataclaw upload")
+    abs_path = str(output_path.resolve())
+    next_steps, next_command = _build_status_next_steps("review", config, None, None)
+    json_block = {
+        "stage": "review",
+        "stage_number": 2,
+        "total_stages": 3,
+        "sessions": meta["sessions"],
+        "source": source_choice,
+        "output_file": abs_path,
+        "pii_commands": _build_pii_commands(output_path),
+        "next_steps": next_steps,
+        "next_command": next_command,
+    }
+    print("\n---TRACE_SANITIZER_JSON---")
+    print(json.dumps(json_block, indent=2))
 
 
 def _build_pii_commands(output_path: Path) -> list[str]:
@@ -1492,9 +1301,9 @@ def _print_pii_guidance(output_path: Path) -> None:
     """Print PII review guidance with concrete grep commands."""
     q = shlex.quote(str(output_path.resolve()))
     print(f"\n{'=' * 50}")
-    print("  IMPORTANT: Review your data before uploading!")
+    print("  IMPORTANT: Review your data before sharing!")
     print(f"{'=' * 50}")
-    print("safety-dataclaw's automatic redaction is NOT foolproof.")
+    print("trace-sanitizer's automatic redaction is NOT foolproof.")
     print("You should scan the exported data for remaining PII.")
     print()
     print("Quick checks (run these and review any matches):")
@@ -1506,14 +1315,14 @@ def _print_pii_guidance(output_path: Path) -> None:
     print()
     print("NEXT: Ask for full name to run an exact-name privacy check, then scan for it:")
     print(f"  grep -i 'THEIR_NAME' {q} | head -10")
-    print("  If user declines sharing full name: use safety-dataclaw confirm --skip-full-name-scan with a skip attestation.")
+    print("  If user declines sharing full name: use trace-sanitizer confirm --skip-full-name-scan with a skip attestation.")
     print()
     print("To add custom redactions, then re-export:")
-    print("  safety-dataclaw config --redact-usernames 'github_handle,discord_name'")
-    print("  safety-dataclaw config --redact 'secret-domain.com,my-api-key'")
-    print(f"  safety-dataclaw export --no-push -o {q}")
+    print("  trace-sanitizer config --redact-usernames 'github_handle,discord_name'")
+    print("  trace-sanitizer config --redact 'secret-domain.com,my-api-key'")
+    print(f"  trace-sanitizer export -o {q}")
     print()
-    print(f"Found an issue? Help improve safety-dataclaw: {REPO_URL}/issues")
+    print(f"Found an issue? Help improve trace-sanitizer: {REPO_URL}/issues")
 
 
 if __name__ == "__main__":

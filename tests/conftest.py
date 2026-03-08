@@ -1,8 +1,8 @@
-"""Shared fixtures for safety_dataclaw tests."""
+"""Shared fixtures for trace_sanitizer tests."""
 
 import pytest
 
-from safety_dataclaw.anonymizer import Anonymizer
+from trace_sanitizer.anonymizer import Anonymizer
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def sample_assistant_entry():
 def mock_anonymizer(monkeypatch):
     """Anonymizer with patched _detect_home_dir returning deterministic values."""
     monkeypatch.setattr(
-        "safety_dataclaw.anonymizer._detect_home_dir",
+        "trace_sanitizer.anonymizer._detect_home_dir",
         lambda: ("/Users/testuser", "testuser"),
     )
     return Anonymizer()
@@ -60,8 +60,8 @@ def mock_anonymizer(monkeypatch):
 @pytest.fixture
 def tmp_config(tmp_path, monkeypatch):
     """Monkeypatch CONFIG_FILE and CONFIG_DIR to tmp_path."""
-    config_dir = tmp_path / ".safety-dataclaw"
+    config_dir = tmp_path / ".trace-sanitizer"
     config_file = config_dir / "config.json"
-    monkeypatch.setattr("safety_dataclaw.config.CONFIG_DIR", config_dir)
-    monkeypatch.setattr("safety_dataclaw.config.CONFIG_FILE", config_file)
+    monkeypatch.setattr("trace_sanitizer.config.CONFIG_DIR", config_dir)
+    monkeypatch.setattr("trace_sanitizer.config.CONFIG_FILE", config_file)
     return config_file

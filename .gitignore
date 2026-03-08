@@ -6,9 +6,9 @@ build/
 .DS_Store
 *.jsonl
 
-# safety-dataclaw local export/review artifacts
-safety_dataclaw_conversations.jsonl
-safety_dataclaw_export.jsonl
+# trace-sanitizer local export/review artifacts
+trace_sanitizer_conversations.jsonl
+trace_sanitizer_export.jsonl
 findings.json
 
 # Local tooling state

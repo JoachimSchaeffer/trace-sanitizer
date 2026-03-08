@@ -1,25 +1,24 @@
-# Safety-DataClaw
+# Trace-Sanitizer
 
-Export Claude Code, Codex, Gemini CLI, and OpenCode conversation history to TRACED.
+Export Claude Code, Codex, Gemini CLI, and OpenCode conversation history for TRACED.
 
 ## THE RULE
 
-**Every `safety-dataclaw` command outputs `next_steps`. FOLLOW THEM.**
+**Every `trace-sanitizer` command outputs `next_steps`. FOLLOW THEM.**
 
 Do not memorize the flow. Do not skip steps. Do not improvise.
-Run the command → read the output → follow `next_steps`. That's it.
+Run the command -> read the output -> follow `next_steps`. That's it.
 
-The CLI tracks your stage (1-4: auth → configure → review → done).
-`safety-dataclaw upload` is **gated** — you must run `safety-dataclaw confirm` first or it will refuse.
+The CLI tracks your stage (1-3: configure -> review -> confirmed).
 
 ## Getting Started
 
-Run `safety-dataclaw status` (or `safety-dataclaw prep` for full details) and follow the `next_steps`.
+Run `trace-sanitizer status` (or `trace-sanitizer prep` for full details) and follow the `next_steps`.
 
 ## Output Format
 
-- `safety-dataclaw prep`, `safety-dataclaw config`, `safety-dataclaw status`, and `safety-dataclaw confirm` output pure JSON
-- `safety-dataclaw export` outputs human-readable text followed by `---SAFETY_DATACLAW_JSON---` and a JSON block
+- `trace-sanitizer prep`, `trace-sanitizer config`, `trace-sanitizer status`, and `trace-sanitizer confirm` output pure JSON
+- `trace-sanitizer export` outputs human-readable text followed by `---TRACE_SANITIZER_JSON---` and a JSON block
 - Always parse the JSON and act on `next_steps`
 
 Key fields:
@@ -27,66 +26,62 @@ Key fields:
 - `next_steps` — follow these in order
 - `next_command` — the single most important command to run next (null if user input needed first)
 
-## PII Audit (Stage 3)
+## PII Audit (Stage 2)
 
-After `safety-dataclaw export --no-push`, follow the `next_steps` in the JSON output. The flow is:
+After `trace-sanitizer export`, follow the `next_steps` in the JSON output. The flow is:
 
 1. **Ask the user their full name** — then grep the export for it
 2. **Run the pii_commands** from the JSON output and review results with the user
 3. **Ask the user what else to look for** — company names, client names, private URLs, other people's names, custom domains
 4. **Deep manual scan** — sample ~20 sessions (beginning, middle, end) and look for anything sensitive the regex missed
-5. **Fix and re-export** if anything found: `safety-dataclaw config --redact "string"` then `safety-dataclaw export --no-push`
-6. **Run `safety-dataclaw confirm` with text attestations** — pass `--full-name`, `--attest-full-name`, `--attest-sensitive`, and `--attest-manual-scan`. It runs PII scan, verifies attestations, shows project breakdown, and unlocks uploading.
-7. **Upload only after explicit user confirmation**: `safety-dataclaw upload`
+5. **Fix and re-export** if anything found: `trace-sanitizer config --redact "string"` then `trace-sanitizer export`
+6. **Run `trace-sanitizer confirm` with text attestations** — pass `--full-name`, `--attest-full-name`, `--attest-sensitive`, and `--attest-manual-scan`. It runs PII scan, verifies attestations, shows project breakdown, and confirms the export.
+7. **Upload via web** — upload the JSONL file at https://traced.run
    After upload, visit https://traced.run/datasets to publish individual trajectories.
 
 ## Commands Reference
 
 ```bash
-safety-dataclaw status                            # Show current stage and next steps (JSON)
-safety-dataclaw auth <API_KEY>                    # Authenticate with TRACED API key
-safety-dataclaw prep                              # Discover projects, check auth (JSON)
-safety-dataclaw prep --source all                 # All sources (Claude + Codex + Gemini + OpenCode)
-safety-dataclaw prep --source claude              # Only Claude Code sessions
-safety-dataclaw prep --source codex               # Only Codex sessions
-safety-dataclaw prep --source gemini              # Only Gemini CLI sessions
-safety-dataclaw prep --source opencode            # Only OpenCode sessions
-safety-dataclaw confirm --full-name "NAME" --attest-full-name "..." --attest-sensitive "..." --attest-manual-scan "..." # Scan PII, verify attestations, unlock uploading (JSON)
-safety-dataclaw confirm --file /path/to/file.jsonl --full-name "NAME" --attest-full-name "..." --attest-sensitive "..." --attest-manual-scan "..." # Confirm a specific export file
-safety-dataclaw list                              # List all projects with exclusion status
-safety-dataclaw list --source all                 # List all sources
-safety-dataclaw list --source codex               # List only Codex projects
-safety-dataclaw config                            # Show current config
-safety-dataclaw config --source all               # REQUIRED source scope: claude|codex|gemini|opencode|all
-safety-dataclaw config --exclude "a,b"            # Add excluded projects (appends)
-safety-dataclaw config --redact "str1,str2"       # Add strings to redact (appends)
-safety-dataclaw config --redact-usernames "u1,u2" # Add usernames to anonymize (appends)
-safety-dataclaw config --confirm-projects         # Mark project selection as confirmed
-safety-dataclaw upload                            # Upload to TRACED (requires safety-dataclaw confirm first)
-safety-dataclaw export --no-push                  # Export locally only
-safety-dataclaw export --source all --no-push     # Export all sources locally
-safety-dataclaw export --source codex --no-push   # Export only Codex sessions
-safety-dataclaw export --source claude --no-push  # Export only Claude Code sessions
-safety-dataclaw export --source gemini --no-push  # Export only Gemini CLI sessions
-safety-dataclaw export --source opencode --no-push # Export only OpenCode sessions
-safety-dataclaw export --all-projects             # Include everything (ignore exclusions)
-safety-dataclaw export --no-thinking              # Exclude extended thinking blocks
-safety-dataclaw export -o /path/to/file.jsonl     # Custom output path
-safety-dataclaw update-skill claude               # Install/update the safety-dataclaw skill for Claude Code
+trace-sanitizer status                            # Show current stage and next steps (JSON)
+trace-sanitizer prep                              # Discover projects (JSON)
+trace-sanitizer prep --source all                 # All sources (Claude + Codex + Gemini + OpenCode)
+trace-sanitizer prep --source claude              # Only Claude Code sessions
+trace-sanitizer prep --source codex               # Only Codex sessions
+trace-sanitizer prep --source gemini              # Only Gemini CLI sessions
+trace-sanitizer prep --source opencode            # Only OpenCode sessions
+trace-sanitizer confirm --full-name "NAME" --attest-full-name "..." --attest-sensitive "..." --attest-manual-scan "..." # Scan PII, verify attestations, confirm export (JSON)
+trace-sanitizer confirm --file /path/to/file.jsonl --full-name "NAME" --attest-full-name "..." --attest-sensitive "..." --attest-manual-scan "..." # Confirm a specific export file
+trace-sanitizer list                              # List all projects with exclusion status
+trace-sanitizer list --source all                 # List all sources
+trace-sanitizer list --source codex               # List only Codex projects
+trace-sanitizer config                            # Show current config
+trace-sanitizer config --source all               # REQUIRED source scope: claude|codex|gemini|opencode|all
+trace-sanitizer config --exclude "a,b"            # Add excluded projects (appends)
+trace-sanitizer config --redact "str1,str2"       # Add strings to redact (appends)
+trace-sanitizer config --redact-usernames "u1,u2" # Add usernames to anonymize (appends)
+trace-sanitizer config --confirm-projects         # Mark project selection as confirmed
+trace-sanitizer export                            # Export locally
+trace-sanitizer export --source all               # Export all sources
+trace-sanitizer export --source codex             # Export only Codex sessions
+trace-sanitizer export --source claude            # Export only Claude Code sessions
+trace-sanitizer export --source gemini            # Export only Gemini CLI sessions
+trace-sanitizer export --source opencode          # Export only OpenCode sessions
+trace-sanitizer export --all-projects             # Include everything (ignore exclusions)
+trace-sanitizer export --no-thinking              # Exclude extended thinking blocks
+trace-sanitizer export -o /path/to/file.jsonl     # Custom output path
+trace-sanitizer update-skill claude               # Install/update the trace-sanitizer skill for Claude Code
 ```
 
 ## Gotchas
 
 - **`--exclude`, `--redact`, `--redact-usernames` APPEND** — they never overwrite. Safe to call repeatedly.
-- **Source selection is REQUIRED before export** — explicitly set `safety-dataclaw config --source claude|codex|gemini|opencode|all` (or pass `--source ...` on export).
-- **`safety-dataclaw prep` outputs pure JSON** — parse it directly.
-- **Always export with `--no-push` first** — review before uploading.
-- **`safety-dataclaw upload` requires `safety-dataclaw confirm` first** — it will refuse otherwise. Re-exporting with `--no-push` resets this.
+- **Source selection is REQUIRED before export** — explicitly set `trace-sanitizer config --source claude|codex|gemini|opencode|all` (or pass `--source ...` on export).
+- **`trace-sanitizer prep` outputs pure JSON** — parse it directly.
 - **PII audit is critical** — automated redaction is not foolproof.
 - **Large exports take time** — 500+ sessions may take 1-3 minutes. Use a generous timeout.
 
 ## Install
 
 ```bash
-pip install safety-dataclaw
+pip install trace-sanitizer
 ```

@@ -1,5 +1,5 @@
 # server/app.py
-"""Sanitization microservice — wraps safety_dataclaw sanitization for server-side use."""
+"""Sanitization microservice — wraps trace_sanitizer sanitization for server-side use."""
 
 import sys
 from pathlib import Path
@@ -8,13 +8,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-# Add parent dir to path so we can import safety_dataclaw
+# Add parent dir to path so we can import trace_sanitizer
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from safety_dataclaw.secrets import scan_text, redact_text, redact_custom_strings
-from safety_dataclaw.anonymizer import Anonymizer
+from trace_sanitizer.secrets import scan_text, redact_text, redact_custom_strings
+from trace_sanitizer.anonymizer import Anonymizer
 
-app = FastAPI(title="Safety DataClaw Sanitization Service", docs_url=None, redoc_url=None)
+app = FastAPI(title="Trace Sanitizer Sanitization Service", docs_url=None, redoc_url=None)
 
 MAX_CONTENT_LENGTH = 10_000_000  # 10 MB
 

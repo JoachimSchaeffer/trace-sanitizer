@@ -1,8 +1,8 @@
-"""Tests for safety_dataclaw.secrets — secret detection and redaction."""
+"""Tests for trace_sanitizer.secrets — secret detection and redaction."""
 
 import pytest
 
-from safety_dataclaw.secrets import (
+from trace_sanitizer.secrets import (
     REDACTED,
     _has_mixed_char_types,
     _shannon_entropy,

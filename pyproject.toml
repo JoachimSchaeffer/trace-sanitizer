@@ -3,30 +3,28 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "safety-dataclaw"
+name = "trace-sanitizer"
 version = "0.1.1"
-description = "Sanitize and upload AI agent trajectories to traced.run"
+description = "Sanitize AI agent trajectories for traced.run"
 requires-python = ">=3.10"
 license = "MIT"
 readme = "README.md"
 keywords = ["claude-code", "traced", "safety", "trajectories", "sanitization"]
-dependencies = [
-    "requests>=2.31.0",
-]
+dependencies = []
 
 [project.scripts]
-safety-dataclaw = "safety_dataclaw.cli:main"
+trace-sanitizer = "trace_sanitizer.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "fastapi", "httpx"]
 
 [tool.setuptools.packages.find]
-include = ["safety_dataclaw*"]
+include = ["trace_sanitizer*"]
 
 [tool.setuptools.package-data]
-safety_dataclaw = ["data/*.md"]
+trace_sanitizer = ["data/*.md"]
 
 [project.urls]
-Homepage = "https://github.com/JoachimSchaeffer/safety-dataclaw"
-Repository = "https://github.com/JoachimSchaeffer/safety-dataclaw"
-Issues = "https://github.com/JoachimSchaeffer/safety-dataclaw/issues"
+Homepage = "https://github.com/JoachimSchaeffer/trace-sanitizer"
+Repository = "https://github.com/JoachimSchaeffer/trace-sanitizer"
+Issues = "https://github.com/JoachimSchaeffer/trace-sanitizer/issues"

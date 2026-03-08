@@ -1,4 +1,4 @@
-"""Tests for safety_dataclaw.cli — CLI commands and helpers."""
+"""Tests for trace_sanitizer.cli — CLI commands and helpers."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from safety_dataclaw.cli import (
+from trace_sanitizer.cli import (
     _build_status_next_steps,
     _collect_review_attestations,
     _format_size,
@@ -17,8 +17,6 @@ from safety_dataclaw.cli import (
     _scan_high_entropy_strings,
     _scan_pii,
     _validate_publish_attestation,
-    cmd_auth,
-    cmd_upload,
     configure,
     export_to_jsonl,
     list_projects,
@@ -230,7 +228,7 @@ class TestExportToJsonl:
             "project": "test",
         }]
         monkeypatch.setattr(
-            "safety_dataclaw.cli.parse_project_sessions",
+            "trace_sanitizer.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
 
@@ -251,7 +249,7 @@ class TestExportToJsonl:
             "stats": {},
         }]
         monkeypatch.setattr(
-            "safety_dataclaw.cli.parse_project_sessions",
+            "trace_sanitizer.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
         projects = [{"dir_name": "test", "display_name": "test"}]
@@ -268,7 +266,7 @@ class TestExportToJsonl:
             "stats": {"input_tokens": 10, "output_tokens": 5},
         }]
         monkeypatch.setattr(
-            "safety_dataclaw.cli.parse_project_sessions",
+            "trace_sanitizer.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
         projects = [{"dir_name": "test", "display_name": "test"}]
@@ -284,7 +282,7 @@ class TestExportToJsonl:
             "stats": {},
         }]
         monkeypatch.setattr(
-            "safety_dataclaw.cli.parse_project_sessions",
+            "trace_sanitizer.cli.parse_project_sessions",
             lambda *a, **kw: session_data,
         )
         projects = [{"dir_name": "t", "display_name": "t"}]
@@ -298,19 +296,19 @@ class TestExportToJsonl:
 
 class TestConfigure:
     def test_merges_exclude(self, tmp_config, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"excluded_projects": ["a"], "redact_strings": []})
+        monkeypatch.setattr("trace_sanitizer.cli.CONFIG_FILE", tmp_config)
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {"excluded_projects": ["a"], "redact_strings": []})
         saved = {}
-        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
+        monkeypatch.setattr("trace_sanitizer.cli.save_config", lambda c: saved.update(c))
 
         configure(exclude=["b", "c"])
         assert sorted(saved["excluded_projects"]) == ["a", "b", "c"]
 
     def test_sets_source(self, tmp_config, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.CONFIG_FILE", tmp_config)
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": None})
+        monkeypatch.setattr("trace_sanitizer.cli.CONFIG_FILE", tmp_config)
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {"source": None})
         saved = {}
-        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
+        monkeypatch.setattr("trace_sanitizer.cli.save_config", lambda c: saved.update(c))
 
         configure(source="codex")
         assert saved["source"] == "codex"
@@ -322,11 +320,11 @@ class TestConfigure:
 class TestListProjects:
     def test_with_projects(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "safety_dataclaw.cli.discover_projects",
+            "trace_sanitizer.cli.discover_projects",
             lambda: [{"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024}],
         )
         monkeypatch.setattr(
-            "safety_dataclaw.cli.load_config",
+            "trace_sanitizer.cli.load_config",
             lambda: {"excluded_projects": []},
         )
         list_projects()
@@ -336,20 +334,20 @@ class TestListProjects:
         assert data[0]["name"] == "proj1"
 
     def test_no_projects(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.discover_projects", lambda: [])
+        monkeypatch.setattr("trace_sanitizer.cli.discover_projects", lambda: [])
         list_projects()
         captured = capsys.readouterr()
         assert "No Claude Code, Codex, Gemini CLI, or OpenCode sessions" in captured.out
 
     def test_source_filter_codex(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "safety_dataclaw.cli.discover_projects",
+            "trace_sanitizer.cli.discover_projects",
             lambda: [
                 {"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024, "source": "claude"},
                 {"display_name": "codex:proj2", "session_count": 3, "total_size_bytes": 512, "source": "codex"},
             ],
         )
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"excluded_projects": []})
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {"excluded_projects": []})
         list_projects(source_filter="codex")
         captured = capsys.readouterr()
         data = json.loads(captured.out)
@@ -359,7 +357,7 @@ class TestListProjects:
 
     def test_no_projects_for_selected_source(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "safety_dataclaw.cli.discover_projects",
+            "trace_sanitizer.cli.discover_projects",
             lambda: [{"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024, "source": "claude"}],
         )
         list_projects(source_filter="codex")
@@ -368,176 +366,19 @@ class TestListProjects:
 
     def test_main_list_uses_configured_source_when_auto(self, monkeypatch, capsys):
         monkeypatch.setattr(
-            "safety_dataclaw.cli.discover_projects",
+            "trace_sanitizer.cli.discover_projects",
             lambda: [
                 {"display_name": "proj1", "session_count": 5, "total_size_bytes": 1024, "source": "claude"},
                 {"display_name": "codex:proj2", "session_count": 3, "total_size_bytes": 512, "source": "codex"},
             ],
         )
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": "codex", "excluded_projects": []})
-        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "list"])
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {"source": "codex", "excluded_projects": []})
+        monkeypatch.setattr("sys.argv", ["trace-sanitizer", "list"])
         main()
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert len(data) == 1
         assert data[0]["name"] == "codex:proj2"
-
-
-# --- cmd_auth ---
-
-
-class TestCmdAuth:
-    def test_invalid_key_format(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
-        args = MagicMock()
-        args.key = "invalid_key_123"
-        cmd_auth(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert "error" in data
-        assert "sdcl_" in data["error"]
-
-    def test_successful_auth(self, monkeypatch, capsys):
-        saved = {}
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
-        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
-
-        mock_client = MagicMock()
-        mock_client.verify.return_value = {"user": {"name": "alice"}}
-        monkeypatch.setattr(
-            "safety_dataclaw.traced_api.TracedClient",
-            lambda api_key, base_url: mock_client,
-        )
-
-        args = MagicMock()
-        args.key = "sdcl_test_key_12345"
-        cmd_auth(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data["status"] == "authenticated"
-        assert saved.get("api_key") == "sdcl_test_key_12345"
-        assert saved.get("stage") == "configure"
-
-    def test_api_error(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
-
-        from safety_dataclaw.traced_api import TracedApiError
-
-        mock_client = MagicMock()
-        mock_client.verify.side_effect = TracedApiError("Invalid or revoked API key")
-
-        monkeypatch.setattr(
-            "safety_dataclaw.traced_api.TracedClient",
-            lambda api_key, base_url: mock_client,
-        )
-
-        args = MagicMock()
-        args.key = "sdcl_bad_key_12345"
-        cmd_auth(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert "error" in data
-        assert "Invalid" in data["error"]
-
-    def test_auth_via_main(self, monkeypatch, capsys):
-        saved = {}
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"traced_url": "https://traced.run"})
-        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda c: saved.update(c))
-
-        mock_client = MagicMock()
-        mock_client.verify.return_value = {"user": {"name": "alice"}}
-
-        monkeypatch.setattr(
-            "safety_dataclaw.traced_api.TracedClient",
-            lambda api_key, base_url: mock_client,
-        )
-
-        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "auth", "sdcl_test_key_12345"])
-        main()
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data["status"] == "authenticated"
-
-
-# --- cmd_upload ---
-
-
-class TestCmdUpload:
-    def test_not_authenticated(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
-        args = MagicMock()
-        args.file = None
-        cmd_upload(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert "error" in data
-        assert "Not authenticated" in data["error"]
-
-    def test_no_export_file(self, monkeypatch, capsys, tmp_path):
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"api_key": "sdcl_test"})
-        args = MagicMock()
-        args.file = str(tmp_path / "nonexistent.jsonl")
-        cmd_upload(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert "error" in data
-        assert "No export file found" in data["error"]
-
-    def test_successful_upload(self, monkeypatch, capsys, tmp_path):
-        export_file = tmp_path / "export.jsonl"
-        export_file.write_text('{"session_id":"s1","model":"claude","messages":[]}\n')
-
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {
-            "api_key": "sdcl_test",
-            "traced_url": "https://traced.run",
-            "source": "all",
-            "last_export": {"redactions": 3},
-        })
-
-        mock_client = MagicMock()
-        mock_client.upload.return_value = {"trajectory_ids": ["t1", "t2"]}
-
-        monkeypatch.setattr(
-            "safety_dataclaw.traced_api.TracedClient",
-            lambda api_key, base_url: mock_client,
-        )
-
-        args = MagicMock()
-        args.file = str(export_file)
-        cmd_upload(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert data["status"] == "uploaded"
-        assert data["count"] == 2
-        assert data["trajectory_ids"] == ["t1", "t2"]
-
-    def test_upload_api_error(self, monkeypatch, capsys, tmp_path):
-        export_file = tmp_path / "export.jsonl"
-        export_file.write_text('{"session_id":"s1","model":"claude","messages":[]}\n')
-
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {
-            "api_key": "sdcl_test",
-            "traced_url": "https://traced.run",
-            "source": "all",
-        })
-
-        from safety_dataclaw.traced_api import TracedApiError
-
-        mock_client = MagicMock()
-        mock_client.upload.side_effect = TracedApiError("API key lacks upload permission")
-
-        monkeypatch.setattr(
-            "safety_dataclaw.traced_api.TracedClient",
-            lambda api_key, base_url: mock_client,
-        )
-
-        args = MagicMock()
-        args.file = str(export_file)
-        cmd_upload(args)
-        captured = capsys.readouterr()
-        data = json.loads(captured.out)
-        assert "error" in data
-        assert "upload permission" in data["error"]
 
 
 class TestWorkflowGateMessages:
@@ -551,15 +392,15 @@ class TestWorkflowGateMessages:
         missing = tmp_path / "missing.jsonl"
         monkeypatch.setattr(
             "sys.argv",
-            ["safety-dataclaw", "confirm", "--file", str(missing)],
+            ["trace-sanitizer", "confirm", "--file", str(missing)],
         )
         with pytest.raises(SystemExit):
             main()
         payload = self._extract_json(capsys.readouterr().out)
         assert payload["error"] == "No export file found."
-        assert payload["blocked_on_step"] == "Step 1/3"
-        assert len(payload["process_steps"]) == 3
-        assert "export --no-push" in payload["process_steps"][0]
+        assert payload["blocked_on_step"] == "Step 1/2"
+        assert len(payload["process_steps"]) == 2
+        assert "export" in payload["process_steps"][0]
 
     def test_confirm_missing_full_name_explains_purpose_and_skip(self, tmp_path, monkeypatch, capsys):
         export_file = tmp_path / "export.jsonl"
@@ -567,7 +408,7 @@ class TestWorkflowGateMessages:
         monkeypatch.setattr(
             "sys.argv",
             [
-                "safety-dataclaw",
+                "trace-sanitizer",
                 "confirm",
                 "--file",
                 str(export_file),
@@ -584,18 +425,18 @@ class TestWorkflowGateMessages:
         payload = self._extract_json(capsys.readouterr().out)
         assert payload["error"] == "Missing required --full-name for verification scan."
         assert "--skip-full-name-scan" in payload["hint"]
-        assert payload["blocked_on_step"] == "Step 2/3"
-        assert len(payload["process_steps"]) == 3
+        assert payload["blocked_on_step"] == "Step 2/2"
+        assert len(payload["process_steps"]) == 2
 
     def test_confirm_skip_full_name_scan_succeeds(self, tmp_path, monkeypatch, capsys):
         export_file = tmp_path / "export.jsonl"
         export_file.write_text('{"project":"p","model":"m","messages":[]}\n')
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
-        monkeypatch.setattr("safety_dataclaw.cli.save_config", lambda _c: None)
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {})
+        monkeypatch.setattr("trace_sanitizer.cli.save_config", lambda _c: None)
         monkeypatch.setattr(
             "sys.argv",
             [
-                "safety-dataclaw",
+                "trace-sanitizer",
                 "confirm",
                 "--file",
                 str(export_file),
@@ -613,21 +454,10 @@ class TestWorkflowGateMessages:
         assert payload["stage"] == "confirmed"
         assert payload["full_name_scan"]["skipped"] is True
 
-    def test_export_before_confirm_shows_step_process(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"stage": "review", "source": "all"})
-        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "export"])
-        with pytest.raises(SystemExit):
-            main()
-        payload = self._extract_json(capsys.readouterr().out)
-        assert payload["error"] == "You must run `safety-dataclaw confirm` before uploading."
-        assert payload["blocked_on_step"] == "Step 2/3"
-        assert len(payload["process_steps"]) == 3
-        assert "confirm" in payload["process_steps"][1]
-
     def test_export_requires_project_confirmation_with_full_flow(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli._has_session_sources", lambda _src: True)
+        monkeypatch.setattr("trace_sanitizer.cli._has_session_sources", lambda _src: True)
         monkeypatch.setattr(
-            "safety_dataclaw.cli.discover_projects",
+            "trace_sanitizer.cli.discover_projects",
             lambda: [
                 {
                     "display_name": "proj1",
@@ -637,15 +467,15 @@ class TestWorkflowGateMessages:
                 }
             ],
         )
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {"source": "all"})
-        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "export", "--no-push"])
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {"source": "all"})
+        monkeypatch.setattr("sys.argv", ["trace-sanitizer", "export"])
         with pytest.raises(SystemExit):
             main()
         payload = self._extract_json(capsys.readouterr().out)
         assert payload["error"] == "Project selection is not confirmed yet."
-        assert payload["blocked_on_step"] == "Step 3/6"
-        assert len(payload["process_steps"]) == 6
-        assert "prep && safety-dataclaw list" in payload["process_steps"][0]
+        assert payload["blocked_on_step"] == "Step 3/5"
+        assert len(payload["process_steps"]) == 5
+        assert "prep && trace-sanitizer list" in payload["process_steps"][0]
         assert payload["required_action"].startswith("Send the full project/folder list")
         assert "in a message" in payload["required_action"]
         assert isinstance(payload["projects"], list)
@@ -653,16 +483,16 @@ class TestWorkflowGateMessages:
         assert payload["projects"][0]["sessions"] == 2
 
     def test_export_requires_explicit_source_selection(self, monkeypatch, capsys):
-        monkeypatch.setattr("safety_dataclaw.cli.load_config", lambda: {})
-        monkeypatch.setattr("sys.argv", ["safety-dataclaw", "export", "--no-push"])
+        monkeypatch.setattr("trace_sanitizer.cli.load_config", lambda: {})
+        monkeypatch.setattr("sys.argv", ["trace-sanitizer", "export"])
         with pytest.raises(SystemExit):
             main()
         payload = self._extract_json(capsys.readouterr().out)
         assert payload["error"] == "Source scope is not confirmed yet."
-        assert payload["blocked_on_step"] == "Step 2/6"
-        assert len(payload["process_steps"]) == 6
+        assert payload["blocked_on_step"] == "Step 2/5"
+        assert len(payload["process_steps"]) == 5
         assert payload["allowed_sources"] == ["all", "both", "claude", "codex", "gemini", "opencode"]
-        assert payload["next_command"] == "safety-dataclaw config --source all"
+        assert payload["next_command"] == "trace-sanitizer config --source all"
 
     def test_configure_next_steps_require_full_folder_presentation(self):
         steps, _next = _build_status_next_steps(
@@ -671,7 +501,7 @@ class TestWorkflowGateMessages:
             None,
             None,
         )
-        assert any("safety-dataclaw list" in step for step in steps)
+        assert any("trace-sanitizer list" in step for step in steps)
         assert any("FULL project/folder list" in step for step in steps)
         assert any("in your next message" in step for step in steps)
         assert any("source scope" in step.lower() for step in steps)
