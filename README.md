@@ -41,21 +41,15 @@ Help me export a conversation using trace-sanitizer.
 
 **This is beta.**
 
-Real world coding trajectories are important for early detection of AI misalignment, failures, and scheming in the wild. Your trajectoreis might contain relevant examples that can make a real difference for research. Trace-sanitizer is maintained by Dr. Joachim Schaeffer. I am currenlty a MATS 9.0 Fellow. I am talking to AI safety research institutes about formal data contribution pipelines. A more structured process will follow.
+Real world coding trajectories are important for early detection of AI misalignment, failures, and scheming in the wild. Your trajectories might contain relevant examples that can make a real difference for research. Trace-sanitizer is maintained by Dr. Joachim Schaeffer. I am currently a MATS 9.0 Fellow. I am talking to AI safety research institutes about formal data contribution pipelines. A more structured process will follow.
 
 But if you want to get active now already, bulk donation works like this:
 
 ```bash
-# Configure
-trace-sanitizer config --source all
-trace-sanitizer list --source all
-trace-sanitizer config --confirm-projects
-trace-sanitizer config --include-tool-outputs    # or --no-tool-outputs
+# Export all trajectories (auto-detects sources, includes tool outputs)
+trace-sanitizer export --all
 
-# Export everything
-trace-sanitizer export --all -o export.jsonl
-
-# Review
+# Review the export for PII
 trace-sanitizer confirm \
   --full-name "YOUR NAME" \
   --attest-full-name "Scanned for full name." \
@@ -63,7 +57,17 @@ trace-sanitizer confirm \
   --attest-manual-scan "Sampled 20 sessions manually."
 ```
 
-Then put the JSONL in a Google Drive folder and email the link to **donate@traced.run**.
+This creates a `traced_export/` folder containing `trajectories.jsonl` and a `LICENSE-CDLA-Permissive-2.0.md`. Zip the folder and email the link to **donate@traced.run**.
+
+You can customize the export with additional flags:
+
+```bash
+trace-sanitizer export --all --source claude          # only Claude Code
+trace-sanitizer export --all --no-tool-outputs        # exclude tool outputs
+trace-sanitizer export --all -o my_export.jsonl       # custom output path
+trace-sanitizer config --exclude "secret-project"     # exclude specific projects
+trace-sanitizer config --redact "CompanyName"          # redact custom strings
+```
 
 <details>
 <summary><b>All commands</b></summary>
@@ -71,7 +75,7 @@ Then put the JSONL in a Google Drive folder and email the link to **donate@trace
 | Command | Description |
 |---------|-------------|
 | `trace-sanitizer export` | Interactive: pick a project and session |
-| `trace-sanitizer export --all` | Export all sessions (requires config) |
+| `trace-sanitizer export --all` | Export all sessions to `traced_export/` folder |
 | `trace-sanitizer export --source claude` | Filter by source |
 | `trace-sanitizer export --include-tool-outputs` | Include tool results |
 | `trace-sanitizer export --no-thinking` | Exclude extended thinking |
