@@ -455,7 +455,7 @@ def redact_custom_strings(text: str, strings: list[str]) -> tuple[str, int]:
             text, replacements = re.subn(rf"\b{escaped}\b", REDACTED, text)
             count += replacements
             # Pass 2: boundaryless case-insensitive match (catches inside
-            # filenames, URLs, hashtags like ADNOC_Report.md or #teamrwe)
+            # filenames, URLs, and hashtags)
             text, replacements = re.subn(escaped, REDACTED, text, flags=re.IGNORECASE)
             count += replacements
         else:
