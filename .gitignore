@@ -13,3 +13,8 @@ findings.json
 
 # Local tooling state
 .desloppify/
+
+# Private audit data — never commit
+analysis/
+datasets/
+traced_export/
