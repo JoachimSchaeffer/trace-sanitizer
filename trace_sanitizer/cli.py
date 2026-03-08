@@ -45,7 +45,7 @@ CONFIRM_COMMAND_SKIP_FULL_NAME_EXAMPLE = (
 )
 
 EXPORT_REVIEW_STEPS = [
-    "Step 1/2: Export locally: trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
+    "Step 1/2: Export locally: trace-sanitizer export --output trajectories.jsonl",
     "Step 2/2: Review/redact, then confirm: trace-sanitizer confirm ...",
 ]
 
@@ -53,7 +53,7 @@ SETUP_STEPS = [
     "Step 1/5: Run prep/list to review project scope: trace-sanitizer prep && trace-sanitizer list",
     "Step 2/5: Explicitly choose source scope: trace-sanitizer config --source <claude|codex|gemini|all>",
     "Step 3/5: Configure exclusions/redactions and confirm projects: trace-sanitizer config ...",
-    "Step 4/5: Export locally: trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
+    "Step 4/5: Export locally: trace-sanitizer export --output trajectories.jsonl",
     "Step 5/5: Review and confirm: trace-sanitizer confirm ...",
 ]
 
@@ -204,7 +204,7 @@ def _build_status_next_steps(
         steps.extend([
             "Ask about GitHub/Discord usernames to anonymize and sensitive strings to redact. "
             "Configure: trace-sanitizer config --redact-usernames \"handle1\" and trace-sanitizer config --redact \"string1\"",
-            "When done configuring, export locally: trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
+            "When done configuring, export locally: trace-sanitizer export --output trajectories.jsonl",
         ])
         # next_command is null because user input is needed before exporting
         return (steps, None)
@@ -227,7 +227,7 @@ def _build_status_next_steps(
         )
 
     # confirmed
-    export_dir = config.get("last_export", {}).get("export_dir", "~/.trace-sanitizer/exports")
+    export_dir = config.get("last_export", {}).get("export_dir", ".")
     return (
         [
             "Done! Export confirmed. The export folder contains your trajectories and the CDLA-Permissive-2.0 license.",
@@ -410,7 +410,7 @@ def _find_export_file(file_path: Path | None) -> Path:
     if file_path and file_path.exists():
         return file_path
     if file_path is None:
-        for c in [Path.home() / ".trace-sanitizer" / "exports" / "trajectories.jsonl", Path("trace_sanitizer_conversations.jsonl")]:
+        for c in [Path("trajectories.jsonl"), Path("trace_sanitizer_conversations.jsonl")]:
             if c.exists():
                 return c
     print(json.dumps({
@@ -418,7 +418,7 @@ def _find_export_file(file_path: Path | None) -> Path:
         "hint": "Run step 1 first to generate a local export file.",
         "blocked_on_step": "Step 1/2",
         "process_steps": EXPORT_REVIEW_STEPS,
-        "next_command": "trace-sanitizer export --output ~/.trace-sanitizer/exports/trajectories.jsonl",
+        "next_command": "trace-sanitizer export --output trajectories.jsonl",
     }, indent=2))
     sys.exit(1)
 
@@ -1127,8 +1127,8 @@ def _run_export(args) -> None:
     # --- Source resolution ---
     source_choice, source_explicit = _resolve_source_choice(args.source, config)
 
-    if interactive and not source_explicit:
-        # Auto-detect all available sources for interactive mode
+    if (interactive or all_mode) and not source_explicit:
+        # Auto-detect all available sources for interactive and --all mode
         source_choice = "all"
         source_explicit = True
 
@@ -1174,9 +1174,9 @@ def _run_export(args) -> None:
         print(f"No {_source_label(source_filter)} sessions found.", file=sys.stderr)
         sys.exit(1)
 
-    # --- Bulk mode gates (skipped in interactive mode) ---
-    if not interactive:
-        if not args.all_projects and not config.get("projects_confirmed", False):
+    # --- Bulk mode gates (skipped in interactive and --all mode) ---
+    if not interactive and not all_mode:
+        if not config.get("projects_confirmed", False):
             excluded = set(config.get("excluded_projects", []))
             list_command = f"trace-sanitizer list --source {source_choice}"
             print(json.dumps({
@@ -1215,6 +1215,8 @@ def _run_export(args) -> None:
     elif interactive:
         from .menu import confirm_tool_outputs
         include_tool_outputs = confirm_tool_outputs()
+    elif all_mode:
+        include_tool_outputs = True
     else:
         print(json.dumps({
             "error": "Tool output inclusion is not configured yet.",
@@ -1301,9 +1303,14 @@ def _run_export(args) -> None:
     # Export — resolve output path and ensure parent directory exists
     output_path = args.output
     if output_path is None:
-        export_dir = Path.home() / ".trace-sanitizer" / "exports"
-        export_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        output_path = export_dir / "trajectories.jsonl"
+        if all_mode:
+            # Bulk export: put in a subfolder with license file
+            export_dir = Path.cwd() / "traced_export"
+            export_dir.mkdir(parents=True, exist_ok=True)
+            output_path = export_dir / "trajectories.jsonl"
+        else:
+            # Single trace: write directly to working directory
+            output_path = Path.cwd() / "trajectories.jsonl"
     else:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1322,10 +1329,11 @@ def _run_export(args) -> None:
         print(f"Redacted {meta['redactions']} secrets (API keys, tokens, emails, etc.)")
     print(f"Models: {', '.join(f'{m} ({c})' for m, c in sorted(meta['models'].items(), key=lambda x: -x[1]))}")
 
-    # Copy CDLA-Permissive-2.0 license into export directory
-    license_path = _copy_license_to_export_dir(output_path)
-    if license_path:
-        print(f"License: {license_path.name} (CDLA-Permissive-2.0)")
+    # Copy CDLA-Permissive-2.0 license into export directory (bulk only)
+    if all_mode:
+        license_path = _copy_license_to_export_dir(output_path)
+        if license_path:
+            print(f"License: {license_path.name} (CDLA-Permissive-2.0)")
 
     _print_pii_guidance(output_path)
 
@@ -1342,10 +1350,12 @@ def _run_export(args) -> None:
     config["stage"] = "review"
     save_config(config)
 
-    print(f"\nDone! Export folder: {export_dir_str}")
-    print("Contents:")
-    for p in sorted(output_path.resolve().parent.iterdir()):
-        print(f"  {p.name}")
+    print(f"\nDone! Exported to: {output_path.resolve()}")
+    if all_mode:
+        print(f"Export folder: {export_dir_str}")
+        print("Contents:")
+        for p in sorted(output_path.resolve().parent.iterdir()):
+            print(f"  {p.name}")
     abs_path = str(output_path.resolve())
     next_steps, next_command = _build_status_next_steps("review", config, None, None)
     json_block = {

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trace-sanitizer"
-version = "0.1.1"
+version = "0.1.0"
 description = "Sanitize AI agent trajectories for traced.run"
 requires-python = ">=3.10"
 license = "MIT"
