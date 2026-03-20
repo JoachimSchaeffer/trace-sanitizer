@@ -37,13 +37,9 @@ Help me export a conversation using trace-sanitizer.
 5. Tell the user how to publish it at https://traced.run
 ```
 
-## 2. BETA: Donate multiple trajectories
+## 2. BETA: Donate trajectories for research
 
-**This is beta.**
-
-Real world coding trajectories are important for early detection of AI misalignment, failures, and scheming in the wild. Your trajectories might contain relevant examples that can make a real difference for research. Trace-sanitizer is maintained by Dr. Joachim Schaeffer. I am currently a MATS 9.0 Fellow. I am talking to AI safety research institutes about formal data contribution pipelines. A more structured process will follow.
-
-But if you want to get active now already, bulk donation works like this:
+This is beta. Real world coding trajectories are important for early detection of AI misalignment and failures in the wild. Your trajectories might contain relevant examples that can make a real difference for research. Traced.run and Trace-sanitizer are maintained by Joachim Schaeffer. I am currently a MATS 9.0 Fellow. If you want to support my research consider sharing your agent trajectories with me:
 
 ```bash
 # Export all trajectories (auto-detects sources, includes tool outputs)
