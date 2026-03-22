@@ -15,7 +15,7 @@ from typing import Any, Mapping, cast
 from . import __version__
 from .anonymizer import Anonymizer
 from .config import CONFIG_FILE, TraceSanitizerConfig, load_config, save_config
-from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, discover_sessions, parse_project_sessions
+from .parser import CLAUDE_DIR, CODEX_DIR, GEMINI_DIR, OPENCODE_DIR, discover_projects, discover_sessions, find_session, parse_project_sessions
 from .secrets import _has_mixed_char_types, _shannon_entropy, redact_session
 
 REPO_URL = "https://github.com/JoachimSchaeffer/trace-sanitizer"
@@ -1016,6 +1016,8 @@ def main() -> None:
                             help="Export all sessions from all projects (skip interactive selection)")
         target.add_argument("--all-projects", action="store_true")
         target.add_argument("--no-thinking", action="store_true")
+        target.add_argument("--session", type=str, default=None,
+                            help="Export a single session by UUID (non-interactive)")
         tool_out_group = target.add_mutually_exclusive_group()
         tool_out_group.add_argument("--include-tool-outputs", action="store_true", default=None,
                                     help="Include tool outputs in export")
@@ -1083,6 +1085,55 @@ def _parse_csv_arg(value: str | None) -> list[str] | None:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _run_single_session_export(args, config: TraceSanitizerConfig, session_id: str) -> None:
+    """Export a single session by UUID, bypassing interactive/bulk gates."""
+    source_choice, _ = _resolve_source_choice(args.source, config)
+    source_filter = _normalize_source_filter(source_choice)
+
+    projects = _filter_projects_by_source(discover_projects(), source_filter)
+    if not projects:
+        print(f"Error: no {_source_label(source_filter)} sessions found.", file=sys.stderr)
+        sys.exit(1)
+
+    project = find_session(session_id, projects)
+    if project is None:
+        print(f"Error: session {session_id} not found.", file=sys.stderr)
+        sys.exit(1)
+
+    extra_usernames = config.get("redact_usernames", [])
+    anonymizer = Anonymizer(extra_usernames=extra_usernames)
+    custom_strings = config.get("redact_strings", [])
+
+    if getattr(args, "include_tool_outputs", None):
+        include_tool_outputs = True
+    elif getattr(args, "no_tool_outputs", None):
+        include_tool_outputs = False
+    elif config.get("include_tool_outputs") is not None:
+        include_tool_outputs = config["include_tool_outputs"]
+    else:
+        include_tool_outputs = False
+
+    output_path = args.output or Path.cwd() / "trajectories.jsonl"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"Exporting session {session_id} from {project['display_name']}...")
+    meta = export_to_jsonl(
+        [project], output_path, anonymizer, not args.no_thinking,
+        custom_strings=custom_strings,
+        include_tool_outputs=include_tool_outputs,
+        session_ids={session_id},
+    )
+
+    if meta["sessions"] == 0:
+        print(f"Error: session {session_id} produced no exportable data.", file=sys.stderr)
+        sys.exit(1)
+
+    file_size = output_path.stat().st_size
+    print(f"Exported {meta['sessions']} session ({_format_size(file_size)}) to {output_path.resolve()}")
+    if meta.get("redactions"):
+        print(f"Redacted {meta['redactions']} secrets")
+
+
 def _handle_config(args) -> None:
     """Handle the config subcommand."""
     include_tool_outputs_flag = None
@@ -1115,12 +1166,19 @@ def _handle_config(args) -> None:
 def _run_export(args) -> None:
     """Run the export flow — discover, anonymize, export locally.
 
-    Two modes:
+    Three modes:
+    - Single session (--session UUID): export one session by ID, no gates required.
     - Interactive (default): auto-detect sources, show project → session menu, export one trace.
       No config gates required.
     - Bulk (--all): requires source scope, project confirmation, and tool output config.
     """
     config = load_config()
+
+    session_id = getattr(args, "session", None)
+    if session_id:
+        _run_single_session_export(args, config, session_id)
+        return
+
     all_mode = getattr(args, "all_mode", False) or args.all_projects
     interactive = not all_mode and sys.stdin.isatty()
 

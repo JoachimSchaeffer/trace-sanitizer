@@ -125,6 +125,47 @@ def discover_projects() -> list[dict]:
     return sorted(projects, key=lambda p: (p["display_name"], p["source"]))
 
 
+def find_session(session_id: str, projects: list[dict]) -> dict | None:
+    """Find which project contains a session with the given UUID.
+
+    Searches across all provided projects for a JSONL file (or directory)
+    matching session_id. Returns the project dict, or None if not found.
+    """
+    for project in projects:
+        source = project.get("source", CLAUDE_SOURCE)
+        if source == CLAUDE_SOURCE:
+            project_path = PROJECTS_DIR / project["dir_name"]
+            if not project_path.exists():
+                continue
+            session_file = project_path / f"{session_id}.jsonl"
+            session_dir = project_path / session_id
+            if session_file.exists() or (session_dir.is_dir() and (session_dir / "subagents").is_dir()):
+                return project
+        elif source == CODEX_SOURCE:
+            index = _get_codex_project_index()
+            for f in index.get(project["dir_name"], []):
+                if f.stem == session_id:
+                    return project
+        elif source == GEMINI_SOURCE:
+            chats_dir = GEMINI_DIR / project["dir_name"] / "chats"
+            if chats_dir.exists():
+                # Gemini sessions can be named session-*.json or use sessionId
+                for f in chats_dir.glob("session-*.json"):
+                    if f.stem == session_id:
+                        return project
+                    try:
+                        data = json.loads(f.read_text())
+                        if data.get("sessionId") == session_id:
+                            return project
+                    except (OSError, json.JSONDecodeError):
+                        continue
+        elif source == OPENCODE_SOURCE:
+            index = _get_opencode_project_index()
+            if session_id in index.get(project["dir_name"], []):
+                return project
+    return None
+
+
 def _discover_claude_projects() -> list[dict]:
     if not PROJECTS_DIR.exists():
         return []
